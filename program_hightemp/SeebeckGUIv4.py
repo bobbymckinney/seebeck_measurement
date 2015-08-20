@@ -23,6 +23,7 @@ from matplotlib.pyplot import gcf, setp
 import matplotlib.animation as animation # For plotting
 import pylab
 import numpy as np
+import matplotlib.pyplot as plt
 import minimalmodbus as modbus # For communicating with the cn7500s
 import omegacn7500 # Driver for cn7500s under minimalmodbus, adds a few easy commands
 import visa # pyvisa, essential for communicating with the Keithley
@@ -37,9 +38,6 @@ from logging_utils import setup_logging_to_file, log_exception
 # for a fancy status bar:
 import EnhancedStatusBar as ESB
 
-# For finding sheet resistance:
-import Seebeck_Processing_v5
-
 #==============================================================================
 # Keeps Windows from complaining that the port is already open:
 modbus.CLOSE_PORT_AFTER_EACH_CALL = True
@@ -52,16 +50,18 @@ Global Variables:
 
 # Naming a data file:
 dataFile = 'Data_Backup.csv'
-statusFile = 'Status.csv'
 finaldataFile = 'Data.csv'
+statusFile = 'Status.csv'
+seebeckFile = 'Seebeck.csv'
 
 APP_EXIT = 1 # id for File\Quit
 
-tolerance = 1 # This must be set to less than oscillation
+
 stability_threshold = 0.2/60
 oscillation = 8 # Degree range that the PID will oscillate in
+tolerance = (oscillation/2) # This must be set to less than oscillation
 measureList = []
-dTlist = [-8,-6,-4,-2,0,2,4,6,8]
+dTlist = [-8,-6,-4,-2,0,2,4,6,8,6,4,2,0,-2,-4,-6,-8]
 
 maxLimit = 700 # Restricts the user to a max temperature
 
@@ -86,6 +86,7 @@ filePath = 'global file path'
 # placer for files to be created
 myfile = 'global file'
 rawfile = 'global file'
+processfile = 'global file'
 
 # Placers for the GUI plots:
 highV_list = []
@@ -99,6 +100,12 @@ ttempB_list = []
 tpid_list = []
 pidA_list = []
 pidB_list = []
+
+timecalclist = []
+Vhighcalclist = []
+Vlowcalclist = []
+dTcalclist = []
+avgTcalclist = []
 
 #ResourceManager for visa instrument control
 ResourceManager = visa.ResourceManager()
@@ -336,6 +343,8 @@ class TakeData:
         global measureList
         global dTlist
 
+        global timecalclist, Vhighcalclist, Vlowcalclist, dTcalclist, avgTcalclist
+
         self.k2700 = k2700
         self.heaterA = heaterA
         self.heaterB = heaterB
@@ -354,7 +363,7 @@ class TakeData:
 
         self.delay = 1
         self.tempdelay = 2
-
+        self.dTnum = 0
         #time initializations
         self.tpid = 0
         self.ttempA = 0
@@ -377,6 +386,12 @@ class TakeData:
             while abort_ID == 0:
                 for avgtemp in measureList:
                     print "Set avg temp tp %f" %(avgtemp)
+                    self.dTnum +=1
+                    timecalclist = []
+                    Vhighcalclist = []
+                    Vlowcalclist = []
+                    dTcalclist = []
+                    avgTcalclist = []
                     # vary dT
                     self.measurement_indicator = 'start'
                     for point in range(len(dTlist)):
@@ -385,20 +400,25 @@ class TakeData:
                         # ramp to correct dT
                         self.heaterA.set_setpoint(avgtemp+dT/2.0)
                         self.heaterB.set_setpoint(avgtemp-dT/2.0)
-                        self.recentpidA = []
-                        self.recentpidAtime=[]
-                        self.recentpidB = []
-                        self.recentpidBtime=[]
+                        self.recenttempA = []
+                        self.recenttempAtime=[]
+                        self.recenttempB = []
+                        self.recenttempBtime=[]
                         self.stabilityA = '-'
                         self.stabilityB = '-'
                         self.updateGUI(stamp="Stability A", data=self.stabilityA)
                         self.updateGUI(stamp="Stability B", data=self.stabilityB)
                         self.pidAset = float(self.heaterA.get_setpoint())
                         self.pidBset = float(self.heaterB.get_setpoint())
-                        self.take_PID_Data()
 
+                        self.take_PID_Data()
+                        self.updateStats()
+                        n = 0
                         while (self.tol != 'OK' or self.stable != 'OK'):
-                            self.take_PID_Data()
+                            n = n + 1
+                            if (n % 5 == 0):
+                                self.take_PID_Data()
+                            #end if
                             self.updateStats()
 
                             if abort_ID == 1: break
@@ -427,6 +447,7 @@ class TakeData:
                         #end if
                         if abort_ID == 1: break
                     #end for
+                    self.process_data()
                     if abort_ID == 1: break
                 #end for
                 abort_ID = 1
@@ -488,30 +509,7 @@ class TakeData:
 
         print "tpid: %.2f s\tpidA: %s C\tpidB: %s C" % (self.tpid, self.pidA, self.pidB)
 
-        #check stability of PID
-        if (len(self.recentpidA)<5):
-            self.recentpidA.append(self.pidA)
-            self.recentpidAtime.append(self.tpid)
-            self.recentpidB.append(self.pidB)
-            self.recentpidBtime.append(self.tpid)
 
-        else:
-            self.recentpidA.pop(0)
-            self.recentpidAtime.pop(0)
-            self.recentpidA.append(self.pidA)
-            self.recentpidAtime.append(self.tpid)
-            self.recentpidB.pop(0)
-            self.recentpidBtime.pop(0)
-            self.recentpidB.append(self.pidB)
-            self.recentpidBtime.append(self.tpid)
-
-            self.stabilityA = self.getStability(self.recentpidA,self.recentpidAtime)
-            print "stability A: %.4f C/min" % (self.stabilityA*60)
-            self.stabilityB = self.getStability(self.recentpidB,self.recentpidBtime)
-            print "stability B: %.4f C/min" % (self.stabilityB*60)
-            self.updateGUI(stamp="Stability A", data=self.stabilityA*60)
-            self.updateGUI(stamp="Stability B", data=self.stabilityB*60)
-        #end else
 
         self.updateGUI(stamp="PID A", data=self.pidA)
         self.updateGUI(stamp="PID B", data=self.pidB)
@@ -519,8 +517,6 @@ class TakeData:
 
         self.updateGUI(stamp="PID A SP", data=self.pidAset)
         self.updateGUI(stamp="PID B SP", data=self.pidBset)
-
-        self.check_status()
 
         self.safety_check()
 
@@ -536,6 +532,73 @@ class TakeData:
     #end def
 
     #--------------------------------------------------------------------------
+    def updateStats(self):
+        print('update all stats\n')
+        self.tempA = float(self.k2700.fetch(tempAChannel))
+        self.ttempA = time.time() - self.start
+        self.tempB = float(self.k2700.fetch(tempBChannel))
+        self.ttempB = time.time() - self.start
+
+        self.updateGUI(stamp="Time Temp A", data=float(self.ttempA))
+        self.updateGUI(stamp="Temp A", data=float(self.tempA))
+        self.updateGUI(stamp="Time Temp B", data=float(self.ttempB))
+        self.updateGUI(stamp="Temp B", data=float(self.tempB))
+
+        print "tempA: %s C\ntempB: %s C" % (self.tempA, self.tempB)
+        print "time %f" % (time.time()-self.start)
+
+        #check stability of PID
+        if (len(self.recenttempA)<5):
+            self.recenttempA.append(self.tempA)
+            self.recenttempAtime.append(self.ttempA)
+            self.recenttempB.append(self.tempB)
+            self.recenttempBtime.append(self.ttempB)
+
+        else:
+            self.recenttempA.pop(0)
+            self.recenttempAtime.pop(0)
+            self.recenttempA.append(self.tempA)
+            self.recenttempAtime.append(self.ttempA)
+            self.recenttempB.pop(0)
+            self.recenttempBtime.pop(0)
+            self.recenttempB.append(self.tempB)
+            self.recenttempBtime.append(self.ttempB)
+
+            self.stabilityA = self.getStability(self.recenttempA,self.recenttempAtime)
+            print "stability A: %.4f C/min" % (self.stabilityA*60)
+            self.stabilityB = self.getStability(self.recenttempB,self.recenttempBtime)
+            print "stability B: %.4f C/min" % (self.stabilityB*60)
+            self.updateGUI(stamp="Stability A", data=self.stabilityA*60)
+            self.updateGUI(stamp="Stability B", data=self.stabilityB*60)
+        #end else
+
+        self.Vhigh = float(self.k2700.fetch(highVChannel))*10**6
+        self.Vhighcalc = self.voltage_Correction(float(self.Vhigh), 'high')
+        self.tVhigh = time.time() - self.start
+        self.Vlow = float(self.k2700.fetch(lowVChannel))*10**6
+        self.Vlowcalc = self.voltage_Correction(float(self.Vlow), 'low')
+        self.tVlow = time.time() - self.start
+
+        self.updateGUI(stamp="Time High Voltage", data=float(self.tVhigh))
+        self.updateGUI(stamp="High Voltage", data=float(self.Vhighcalc))
+        self.updateGUI(stamp="Time Low Voltage", data=float(self.tVlow))
+        self.updateGUI(stamp="Low Voltage", data=float(self.Vlowcalc))
+
+        print "high voltage: %.2f\nlow voltage: %.2f" % (self.Vhighcalc, self.Vlowcalc)
+        print "time %f" % (time.time()-self.start)
+
+        global rawfile
+        print('\nWrite status to file\n')
+        rawfile.write('%.1f,'%(self.tVlow))
+        rawfile.write('%.2f,%.2f,' %(self.pidA,self.pidB))
+        rawfile.write('%.2f,%.2f,'%(self.tempA,self.tempB))
+        rawfile.write('%.3f,'%(self.Vhighcalc))
+        rawfile.write('%.3f\n'%(self.Vlowcalc))
+
+        self.check_status()
+    #end def
+
+    #--------------------------------------------------------------------------
     def getStability(self, temps, times):
         coeffs = np.polyfit(times, temps, 1)
 
@@ -547,7 +610,7 @@ class TakeData:
     #--------------------------------------------------------------------------
     def check_status(self):
 
-        if (np.abs(self.pidA-self.pidAset) < self.tolerance and np.abs(self.pidB-self.pidBset) < self.tolerance):
+        if (np.abs(self.tempA-self.pidAset) < self.tolerance and np.abs(self.tempB-self.pidBset) < self.tolerance):
 
             self.tol = 'OK'
         #end if
@@ -573,46 +636,6 @@ class TakeData:
         #end elif
 
         self.updateGUI(stamp="Status Bar", data=[self.tol, self.stable])
-    #end def
-
-    #--------------------------------------------------------------------------
-    def updateStats(self):
-        print('update all stats\n')
-        self.tempA = float(self.k2700.fetch(tempAChannel))
-        self.ttempA = time.time() - self.start
-        self.tempB = float(self.k2700.fetch(tempBChannel))
-        self.ttempB = time.time() - self.start
-
-        self.updateGUI(stamp="Time Temp A", data=float(self.ttempA))
-        self.updateGUI(stamp="Temp A", data=float(self.tempA))
-        self.updateGUI(stamp="Time Temp B", data=float(self.ttempB))
-        self.updateGUI(stamp="Temp B", data=float(self.tempB))
-
-        print "tempA: %s C\ntempB: %s C" % (self.tempA, self.tempB)
-        print "time %f" % (time.time()-self.start)
-
-        self.Vhigh = float(self.k2700.fetch(highVChannel))*10**6
-        self.Vhighcalc = self.voltage_Correction(float(self.Vhigh), 'high')
-        self.tVhigh = time.time() - self.start
-        self.Vlow = float(self.k2700.fetch(lowVChannel))*10**6
-        self.Vlowcalc = self.voltage_Correction(float(self.Vlow), 'low')
-        self.tVlow = time.time() - self.start
-
-        self.updateGUI(stamp="Time High Voltage", data=float(self.tVhigh))
-        self.updateGUI(stamp="High Voltage", data=float(self.Vhighcalc))
-        self.updateGUI(stamp="Time Low Voltage", data=float(self.tVlow))
-        self.updateGUI(stamp="Low Voltage", data=float(self.Vlowcalc))
-
-        print "high voltage: %.2f\nlow voltage: %.2f" % (self.Vhighcalc, self.Vlowcalc)
-        print "time %f" % (time.time()-self.start)
-
-        global rawfile
-        print('\nWrite status to file\n')
-        rawfile.write('%.1f,'%(self.tVlow))
-        rawfile.write('%.2f,%.2f,' %(self.pidA,self.pidB))
-        rawfile.write('%.2f,%.2f,'%(self.tempA,self.tempB))
-        rawfile.write('%.3f,'%(self.Vhighcalc))
-        rawfile.write('%.3f\n'%(self.Vlowcalc))
     #end def
 
     #--------------------------------------------------------------------------
@@ -786,7 +809,9 @@ class TakeData:
 
     #--------------------------------------------------------------------------
     def write_data_to_file(self):
+        global timecalclist, Vhighcalclist, Vlowcalclist, dTcalclist, avgTcalclist
         global myfile
+
         print('\nWrite data to file\n')
         time = (self.ttempA + self.ttempB + self.tVlow + self.tVhigh + self.ttempA2 + self.ttempB2 + self.tVlow2 + self.tVhigh2)/8
         ta = (self.tempA + self.tempA2)/2
@@ -798,6 +823,12 @@ class TakeData:
         myfile.write('%f,' %(time))
         myfile.write('%f,%f,' % (avgt, dt) )
         myfile.write('%.3f,%.3f' % (vhigh,vlow))
+
+        timecalclist.append(time)
+        Vhighcalclist.append(vhigh)
+        Vlowcalclist.append(vlow)
+        dTcalclist.append(dt)
+        avgTcalclist.append(avgt)
 
         # indicates whether an oscillation has started or stopped
         if self.measurement_indicator == 'start':
@@ -828,6 +859,105 @@ class TakeData:
     #end def
 
     #--------------------------------------------------------------------------
+    def process_data(self):
+        global timecalclist, Vhighcalclist, Vlowcalclist, dTcalclist, avgTcalclist
+        global processfile
+
+        time = np.average(timecalclist)
+        avgT = np.average(avgTcalclist)
+
+        results_high = {}
+        results_low = {}
+
+        coeffs_high = np.polyfit(dTcalclist, Vhighcalclist, 1)
+        coeffs_low = np.polyfit(dTcalclist,Vlowcalclist,1)
+        # Polynomial Coefficients
+        polynomial_high = coeffs_high.tolist()
+        polynomial_low = coeffs_low.tolist()
+
+        seebeck_high = polynomial_high[0]
+        offset_high = polynomial_high[1]
+        seebeck_low = polynomial_low[0]
+        offset_low = polynomial_low[1]
+
+        # Calculate coefficient of determination (r-squared):
+        p_high = np.poly1d(coeffs_high)
+        p_low = np.poly1d(coeffs_low)
+        # fitted values:
+        yhat_high = p_high(dTcalclist)
+        yhat_low = p_low(dTcalclist)
+        # mean of values:
+        ybar_high = np.sum(Vhighcalclist)/len(Vhighcalclist)
+        ybar_low = np.sum(Vlowcalclist)/len(Vlowcalclist)
+        # regression sum of squares:
+        ssreg_high = np.sum((yhat_high-ybar_high)**2)   # or sum([ (yihat - ybar)**2 for yihat in yhat])
+        ssreg_low = np.sum((yhat_low-ybar_low)**2)
+        # total sum of squares:
+        sstot_high = np.sum((Vhighcalclist - ybar_high)**2)
+        sstot_low = np.sum((Vlowcalclist - ybar_low)**2)    # or sum([ (yi - ybar)**2 for yi in y])
+
+        rsquared_high = ssreg_high / sstot_high
+        rsquared_low = ssreg_low / sstot_low
+
+        processfile.write('%.1f,%.3f,%.3f,%.3f,%.2f,%.2f,%.5f,%.5f\n'%(time,avgT,seebeck_high,offset_high,rsquared_high,seebeck_low,offset_low,rsquared_low))
+
+        fithigh = {}
+        fitlow = {}
+        fithigh['polynomial'] = polynomial_high
+        fitlow['polynomial'] = polynomial_low
+        fithigh['r-squared'] = rsquared_high
+        fitlow['r-squared'] = rsquared_low
+        celsius = u"\u2103"
+        self.create_plot(dTcalclist,Vlowcalclist,Vhighcalclist,fitlow,fithigh,str(avgT)+celsius)
+        
+        self.updateGUI(stamp="Seebeck High", data=seebeck_high)
+        self.updateGUI(stamp="Seebeck Low", data=seebeck_low)
+    #end def
+
+    #--------------------------------------------------------------------------
+    def create_plot(self, x, ylow, yhigh, fitLow, fitHigh, title):
+        global filePath
+
+        dpi = 400
+        
+        plt.ioff()
+
+        # Create Plot:
+        fig = plt.figure(self.dTnum, dpi=dpi)
+        ax = fig.add_subplot(111)
+        ax.grid()
+        ax.set_title(title)
+        ax.set_xlabel("dT (K)")
+        ax.set_ylabel("dV (uV)")
+
+        # Plot data points:
+        ax.scatter(x, ylow, color='r', marker='.', label="Low Voltage")
+        ax.scatter(x, yhigh, color='b', marker='.', label="High Voltage")
+
+        # Overlay linear fits:
+        coeffsLow = fitLow['polynomial']
+        coeffsHigh = fitHigh['polynomial']
+        p_low = np.poly1d(coeffsLow)
+        p_high = np.poly1d(coeffsHigh)
+        xp = np.linspace(min(x), max(x), 5000)
+        low_eq = 'dV = %.2f*(dT) + %.2f' % (coeffsLow[0], coeffsLow[1])
+        high_eq = 'dV = %.2f*(dT) + %.2f' % (coeffsHigh[0], coeffsHigh[1])
+        ax.plot(xp, p_low(xp), '-', c='#FF9900', label="Low Voltage Fit\n %s" % low_eq)
+        ax.plot(xp, p_high(xp), '-', c='g', label="High Voltage Fit\n %s" % high_eq)
+
+        ax.legend(loc='upper left', fontsize='10')
+
+        # Save:
+        plot_folder = filePath + '/Seebeck Plots/'
+        if not os.path.exists(plot_folder):
+            os.makedirs(plot_folder)
+
+        fig.savefig('%s.png' % (plot_folder + title) , dpi=dpi)
+
+        plt.close()
+    #end def
+
+    #--------------------------------------------------------------------------
     def save_files(self):
         ''' Function saving the files after the data acquisition loop has been
             exited.
@@ -839,6 +969,7 @@ class TakeData:
         global finaldataFile
         global myfile
         global rawfile
+        global processfile
 
         stop = time.time()
         end = datetime.now() # End time
@@ -847,6 +978,7 @@ class TakeData:
 
         myfile.close() # Close the file
         rawfile.close()
+        processfile.close()
 
         myfile = open(dataFile, 'r') # Opens the file for Reading
         contents = myfile.readlines() # Reads the lines of the file into python set
@@ -1043,6 +1175,7 @@ class UserPanel(wx.Panel):
         global finaldataFile
         global myfile
         global rawfile
+        global processfile
         global measureList
 
         global abort_ID
@@ -1059,12 +1192,13 @@ class UserPanel(wx.Panel):
 
                 if self.run_check == wx.ID_OK:
 
-                    file = dataFile # creates a data file
                     myfile = open(dataFile, 'w') # opens file for writing/overwriting
                     rawfile = open(statusFile,'w')
+                    processfile = open(seebeckFile,'w')
                     begin = datetime.now() # Current date and time
                     myfile.write('Start Time: ' + str(begin) + '\n')
                     rawfile.write('Start Time: ' + str(begin) + '\n')
+                    processfile.write('Start Time: ' + str(begin) + '\n')
 
                     dataheaders = 'time, avgtemp, deltatemp, Vhigh, Vlow, indicator\n'
                     myfile.write(dataheaders)
@@ -1072,6 +1206,8 @@ class UserPanel(wx.Panel):
                     rawheaders = 'time, pidA, pidB, tempA, tempB, Vhigh, Vlow\n'
                     rawfile.write(rawheaders)
 
+                    processheaders = 'time(s),temperature (C),seebeck_high (uV/K),offset_high (uV),R^2_high,seebeck_low (uV/K),offset_low (uV),R^2_low\n'
+                    processfile.write(processheaders)
 
                     abort_ID = 0
 
@@ -1086,6 +1222,7 @@ class UserPanel(wx.Panel):
                     self.btn_dlt.Disable()
                     self.btn_clr.Disable()
                     self.btn_check.Disable()
+                    self.btn_run.Disable()
                     self.btn_stop.Enable()
 
                 #end if
@@ -1213,7 +1350,7 @@ class UserPanel(wx.Panel):
                 self.oscillation = str(maxLimit)
             self.text_osc.SetLabel(self.oscillation)
             oscillation = float(self.oscillation)
-            dTlist = [oscillation*i/4 for i in range(-4,5)]
+            dTlist = [oscillation*i/4 for i in range(-4,5)+range(3,-5,-1)]
 
         except ValueError:
             wx.MessageBox("Invalid input. Must be a number.", "Error")
@@ -1252,6 +1389,8 @@ class UserPanel(wx.Panel):
             self.tolerance = self.edit_tol.GetValue()
             if float(self.tolerance) > oscillation:
                 self.tolerance = str(oscillation-1)
+            elif float(self.tolerance) < oscillation/2:
+                self.tolerance = str(oscillation/2)
             self.text_tol.SetLabel(self.tolerance)
             tolerance = float(self.tolerance)
         except ValueError:
@@ -1490,6 +1629,9 @@ class StatusPanel(wx.Panel):
         self.stabilityA = '-'
         self.stabilityB = '-'
         self.dT = str(float(self.tA)-float(self.tB))
+        self.avgT = str((float(self.tA)+float(self.tB))/2)
+        self.seebeckhigh = '-'
+        self.seebecklow = '-'
         self.mea = '-'
 
         self.create_title("Status Panel")
@@ -1516,6 +1658,8 @@ class StatusPanel(wx.Panel):
         pub.subscribe(self.OnStabilityA, "Stability A")
         pub.subscribe(self.OnStabilityB, "Stability B")
         pub.subscribe(self.OnMeasurement, 'Measurement')
+        pub.subscribe(self.OnSeebeckHigh, "Seebeck High")
+        pub.subscribe(self.OnSeebeckLow, "Seebeck Low")
 
         # Updates from inital check
         pub.subscribe(self.OnHighVoltage, "High Voltage Status")
@@ -1549,6 +1693,7 @@ class StatusPanel(wx.Panel):
     def OnTempA(self, msg):
         self.tA = '%.1f'%(float(msg))
         self.dT = str(float(self.tA)-float(self.tB))
+        self.avgT = str((float(self.tA)+float(self.tB))/2)
         self.update_values()
     #end def
 
@@ -1556,6 +1701,7 @@ class StatusPanel(wx.Panel):
     def OnTempB(self, msg):
         self.tB = '%.1f'%(float(msg))
         self.dT = str(float(self.tA)-float(self.tB))
+        self.avgT = str((float(self.tA)+float(self.tB))/2)
         self.update_values()
     #end def
 
@@ -1598,6 +1744,18 @@ class StatusPanel(wx.Panel):
             self.stabilityB = '%.2f'%(float(msg))
         else:
             self.stabilityB = msg
+        self.update_values()
+    #end def
+
+    #--------------------------------------------------------------------------
+    def OnSeebeckHigh(self, msg):
+        self.seebeckhigh = '%.2f'%(float(msg))
+        self.update_values()
+    #end def
+    
+    #--------------------------------------------------------------------------
+    def OnSeebeckLow(self, msg):
+        self.seebecklow = '%.2f'%(float(msg))
         self.update_values()
     #end def
 
@@ -1648,9 +1806,9 @@ class StatusPanel(wx.Panel):
         self.label_ctime.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_t = wx.StaticText(self, label="run time (s):")
         self.label_t.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_highV = wx.StaticText(self, label="high voltage ("+self.mu+"V):")
+        self.label_highV = wx.StaticText(self, label="voltage high ("+self.mu+"V):")
         self.label_highV.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_lowV = wx.StaticText(self, label="low voltage ("+self.mu+"V):")
+        self.label_lowV = wx.StaticText(self, label="voltage low ("+self.mu+"V):")
         self.label_lowV.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_tA = wx.StaticText(self, label="temp A ("+self.celsius+"):")
         self.label_tA.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
@@ -1668,8 +1826,14 @@ class StatusPanel(wx.Panel):
         self.label_stabilityA.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_stabilityB = wx.StaticText(self, label="stability B ("+self.celsius+ "/min):")
         self.label_stabilityB.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.label_avgT = wx.StaticText(self, label="avg T ("+self.celsius+"):")
+        self.label_avgT.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_dT = wx.StaticText(self, label=self.delta+"T ("+self.celsius+"):")
         self.label_dT.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.label_seebeckhigh = wx.StaticText(self, label="seebeck high ("+self.mu+"V/"+self.celsius+"):")
+        self.label_seebeckhigh.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.label_seebecklow = wx.StaticText(self, label="seebeck low ("+self.mu+"V/"+self.celsius+"):")
+        self.label_seebecklow.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_mea = wx.StaticText(self, label="seebeck measurement")
         self.label_mea.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
 
@@ -1697,8 +1861,14 @@ class StatusPanel(wx.Panel):
         self.stabilityAcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.stabilityBcurrent = wx.StaticText(self, label=self.stabilityB)
         self.stabilityBcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.avgTcurrent = wx.StaticText(self, label=self.avgT)
+        self.avgTcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.dTcurrent = wx.StaticText(self, label=self.dT)
         self.dTcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.seebeckhighcurrent = wx.StaticText(self, label=self.seebeckhigh)
+        self.seebeckhighcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+        self.seebecklowcurrent = wx.StaticText(self, label=self.seebecklow)
+        self.seebecklowcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.meacurrent = wx.StaticText(self, label=self.mea)
         self.meacurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
 
@@ -1719,13 +1889,16 @@ class StatusPanel(wx.Panel):
         self.pBsetcurrent.SetLabel(self.pBset)
         self.stabilityAcurrent.SetLabel(self.stabilityA)
         self.stabilityBcurrent.SetLabel(self.stabilityB)
+        self.avgTcurrent.SetLabel(self.avgT)
         self.dTcurrent.SetLabel(self.dT)
+        self.seebeckhighcurrent.SetLabel(self.seebeckhigh)
+        self.seebecklowcurrent.SetLabel(self.seebecklow)
         self.meacurrent.SetLabel(self.mea)
     #end def
 
     #--------------------------------------------------------------------------
     def create_sizer(self):
-        sizer = wx.GridBagSizer(17,2)
+        sizer = wx.GridBagSizer(20,2)
 
         sizer.Add(self.titlePanel, (0, 0), span = (1,2), border=5, flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.linebreak1,(1,0), span = (1,2))
@@ -1742,28 +1915,37 @@ class StatusPanel(wx.Panel):
 
         sizer.Add(self.label_tA, (6,0))
         sizer.Add(self.tAcurrent, (6,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_pA, (7,0))
-        sizer.Add(self.pAcurrent, (7,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_pAset, (8,0))
-        sizer.Add(self.pAsetcurrent, (8,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_stabilityA, (9,0))
-        sizer.Add(self.stabilityAcurrent, (9, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_stabilityA, (7,0))
+        sizer.Add(self.stabilityAcurrent, (7, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_pA, (8,0))
+        sizer.Add(self.pAcurrent, (8,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_pAset, (9,0))
+        sizer.Add(self.pAsetcurrent, (9,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+
 
         sizer.Add(self.label_tB, (10,0))
         sizer.Add(self.tBcurrent, (10,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_pB, (11,0))
-        sizer.Add(self.pBcurrent, (11,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_pBset, (12,0))
-        sizer.Add(self.pBsetcurrent, (12,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_stabilityB, (13,0))
-        sizer.Add(self.stabilityBcurrent, (13, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_stabilityB, (11,0))
+        sizer.Add(self.stabilityBcurrent, (11, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_pB, (12,0))
+        sizer.Add(self.pBcurrent, (12,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_pBset, (13,0))
+        sizer.Add(self.pBsetcurrent, (13,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        
+        sizer.Add(self.label_avgT, (14,0))
+        sizer.Add(self.avgTcurrent, (14,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_dT, (15,0))
+        sizer.Add(self.dTcurrent, (15,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        
+        sizer.Add(self.label_seebeckhigh, (16,0))
+        sizer.Add(self.seebeckhighcurrent, (16,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_seebecklow, (17,0))
+        sizer.Add(self.seebecklowcurrent, (17,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        
+        sizer.Add(self.label_mea, (18,0))
+        sizer.Add(self.meacurrent, (18,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        sizer.Add(self.label_dT, (14,0))
-        sizer.Add(self.dTcurrent, (14,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_mea, (15,0))
-        sizer.Add(self.meacurrent, (15,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-
-        sizer.Add(self.linebreak2, (16,0), span = (1,2))
+        sizer.Add(self.linebreak2, (19,0), span = (1,2))
 
         self.SetSizer(sizer)
     #end def

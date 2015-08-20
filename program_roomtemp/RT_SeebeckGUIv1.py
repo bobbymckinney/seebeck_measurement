@@ -850,22 +850,22 @@ class StatusPanel(wx.Panel):
     #--------------------------------------------------------------------------
     def OnTime(self, msg):
         time = int(float(msg))
-        
+
         hours = str(time/3600)
-        minutes = time%3600/60
+        minutes = int(time%3600/60)
         if (minutes < 10):
             minutes = '0%i'%(minutes)
         else:
-            minutes = '%i'(minutes)
-        seconds = time%60
+            minutes = '%i'%(minutes)
+        seconds = int(time%60)
         if (seconds < 10):
             seconds = '0%i'%(seconds)
         else:
             seconds = '%i'%(seconds)
-        
+
         self.t = '%s:%s:%s'%(hours,minutes,seconds)
-        self.ctime = str(datetime.now())[11:19]    
-        self.update_values()    
+        self.ctime = str(datetime.now())[11:19]
+        self.update_values() 
     #end def
     
     #--------------------------------------------------------------------------    
