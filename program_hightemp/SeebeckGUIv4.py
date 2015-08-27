@@ -59,7 +59,7 @@ APP_EXIT = 1 # id for File\Quit
 
 stability_threshold = 0.2/60
 oscillation = 8 # Degree range that the PID will oscillate in
-tolerance = (oscillation/2) # This must be set to less than oscillation
+tolerance = (oscillation/8) # This must be set to less than oscillation
 measureList = []
 dTlist = [-8,-6,-4,-2,0,2,4,6,8,6,4,2,0,-2,-4,-6,-8]
 
@@ -400,10 +400,10 @@ class TakeData:
                         # ramp to correct dT
                         self.heaterA.set_setpoint(avgtemp+dT/2.0)
                         self.heaterB.set_setpoint(avgtemp-dT/2.0)
-                        self.recenttempA = []
-                        self.recenttempAtime=[]
-                        self.recenttempB = []
-                        self.recenttempBtime=[]
+                        self.recentpidA = []
+                        self.recentpidAtime=[]
+                        self.recentpidB = []
+                        self.recentpidBtime=[]
                         self.stabilityA = '-'
                         self.stabilityB = '-'
                         self.updateGUI(stamp="Stability A", data=self.stabilityA)
@@ -416,9 +416,9 @@ class TakeData:
                         n = 0
                         while (self.tol != 'OK' or self.stable != 'OK'):
                             n = n + 1
-                            if (n % 5 == 0):
-                                self.take_PID_Data()
-                            #end if
+
+                            self.take_PID_Data()
+
                             self.updateStats()
 
                             if abort_ID == 1: break
@@ -509,6 +509,30 @@ class TakeData:
 
         print "tpid: %.2f s\tpidA: %s C\tpidB: %s C" % (self.tpid, self.pidA, self.pidB)
 
+        #check stability of PID
+        if (len(self.recentpidA)<5):
+            self.recentpidA.append(self.pidA)
+            self.recentpidAtime.append(self.tpid)
+            self.recentpidB.append(self.pidB)
+            self.recentpidBtime.append(self.tpid)
+
+        else:
+            self.recentpidA.pop(0)
+            self.recentpidAtime.pop(0)
+            self.recentpidA.append(self.pidA)
+            self.recentpidAtime.append(self.tpid)
+            self.recentpidB.pop(0)
+            self.recentpidBtime.pop(0)
+            self.recentpidB.append(self.pidB)
+            self.recentpidBtime.append(self.tpid)
+
+            self.stabilityA = self.getStability(self.recentpidA,self.recentpidAtime)
+            print "stability A: %.4f C/min" % (self.stabilityA*60)
+            self.stabilityB = self.getStability(self.recentpidB,self.recentpidBtime)
+            print "stability B: %.4f C/min" % (self.stabilityB*60)
+            self.updateGUI(stamp="Stability A", data=self.stabilityA*60)
+            self.updateGUI(stamp="Stability B", data=self.stabilityB*60)
+        #end else
 
 
         self.updateGUI(stamp="PID A", data=self.pidA)
@@ -519,7 +543,7 @@ class TakeData:
         self.updateGUI(stamp="PID B SP", data=self.pidBset)
 
         self.safety_check()
-
+        self.check_status()
     #end def
 
     #--------------------------------------------------------------------------
@@ -547,31 +571,6 @@ class TakeData:
         print "tempA: %s C\ntempB: %s C" % (self.tempA, self.tempB)
         print "time %f" % (time.time()-self.start)
 
-        #check stability of PID
-        if (len(self.recenttempA)<5):
-            self.recenttempA.append(self.tempA)
-            self.recenttempAtime.append(self.ttempA)
-            self.recenttempB.append(self.tempB)
-            self.recenttempBtime.append(self.ttempB)
-
-        else:
-            self.recenttempA.pop(0)
-            self.recenttempAtime.pop(0)
-            self.recenttempA.append(self.tempA)
-            self.recenttempAtime.append(self.ttempA)
-            self.recenttempB.pop(0)
-            self.recenttempBtime.pop(0)
-            self.recenttempB.append(self.tempB)
-            self.recenttempBtime.append(self.ttempB)
-
-            self.stabilityA = self.getStability(self.recenttempA,self.recenttempAtime)
-            print "stability A: %.4f C/min" % (self.stabilityA*60)
-            self.stabilityB = self.getStability(self.recenttempB,self.recenttempBtime)
-            print "stability B: %.4f C/min" % (self.stabilityB*60)
-            self.updateGUI(stamp="Stability A", data=self.stabilityA*60)
-            self.updateGUI(stamp="Stability B", data=self.stabilityB*60)
-        #end else
-
         self.Vhigh = float(self.k2700.fetch(highVChannel))*10**6
         self.Vhighcalc = self.voltage_Correction(float(self.Vhigh), 'high')
         self.tVhigh = time.time() - self.start
@@ -595,7 +594,7 @@ class TakeData:
         rawfile.write('%.3f,'%(self.Vhighcalc))
         rawfile.write('%.3f\n'%(self.Vlowcalc))
 
-        self.check_status()
+
     #end def
 
     #--------------------------------------------------------------------------
@@ -610,7 +609,7 @@ class TakeData:
     #--------------------------------------------------------------------------
     def check_status(self):
 
-        if (np.abs(self.tempA-self.pidAset) < self.tolerance and np.abs(self.tempB-self.pidBset) < self.tolerance):
+        if (np.abs(self.pidA-self.pidAset) < self.tolerance and np.abs(self.pidB-self.pidBset) < self.tolerance):
 
             self.tol = 'OK'
         #end if
@@ -909,7 +908,7 @@ class TakeData:
         fitlow['r-squared'] = rsquared_low
         celsius = u"\u2103"
         self.create_plot(dTcalclist,Vlowcalclist,Vhighcalclist,fitlow,fithigh,str(avgT)+celsius)
-        
+
         self.updateGUI(stamp="Seebeck High", data=seebeck_high)
         self.updateGUI(stamp="Seebeck Low", data=seebeck_low)
     #end def
@@ -919,7 +918,7 @@ class TakeData:
         global filePath
 
         dpi = 400
-        
+
         plt.ioff()
 
         # Create Plot:
@@ -1389,8 +1388,6 @@ class UserPanel(wx.Panel):
             self.tolerance = self.edit_tol.GetValue()
             if float(self.tolerance) > oscillation:
                 self.tolerance = str(oscillation-1)
-            elif float(self.tolerance) < oscillation/2:
-                self.tolerance = str(oscillation/2)
             self.text_tol.SetLabel(self.tolerance)
             tolerance = float(self.tolerance)
         except ValueError:
@@ -1752,7 +1749,7 @@ class StatusPanel(wx.Panel):
         self.seebeckhigh = '%.2f'%(float(msg))
         self.update_values()
     #end def
-    
+
     #--------------------------------------------------------------------------
     def OnSeebeckLow(self, msg):
         self.seebecklow = '%.2f'%(float(msg))
@@ -1931,17 +1928,17 @@ class StatusPanel(wx.Panel):
         sizer.Add(self.pBcurrent, (12,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.label_pBset, (13,0))
         sizer.Add(self.pBsetcurrent, (13,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        
+
         sizer.Add(self.label_avgT, (14,0))
         sizer.Add(self.avgTcurrent, (14,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.label_dT, (15,0))
         sizer.Add(self.dTcurrent, (15,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        
+
         sizer.Add(self.label_seebeckhigh, (16,0))
         sizer.Add(self.seebeckhighcurrent, (16,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.label_seebecklow, (17,0))
         sizer.Add(self.seebecklowcurrent, (17,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        
+
         sizer.Add(self.label_mea, (18,0))
         sizer.Add(self.meacurrent, (18,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
