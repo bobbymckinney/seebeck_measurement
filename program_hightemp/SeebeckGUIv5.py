@@ -42,7 +42,7 @@ import EnhancedStatusBar as ESB
 # Keeps Windows from complaining that the port is already open:
 modbus.CLOSE_PORT_AFTER_EACH_CALL = True
 
-version = '4.0 (2015-08-18)'
+version = '5.0 (2015-08-31)'
 
 '''
 Global Variables:
@@ -61,7 +61,7 @@ stability_threshold = 0.2/60
 oscillation = 8 # Degree range that the PID will oscillate in
 tolerance = (oscillation/8) # This must be set to less than oscillation
 measureList = []
-dTlist = [-8,-6,-4,-2,0,2,4,6,8,6,4,2,0,-2,-4,-6,-8]
+dTlist = [0,-2,-4,-6,-8,-6,-4,-2,0,2,4,6,8,6,4,2,0]
 
 maxLimit = 700 # Restricts the user to a max temperature
 
@@ -386,20 +386,60 @@ class TakeData:
             while abort_ID == 0:
                 for avgtemp in measureList:
                     print "Set avg temp tp %f" %(avgtemp)
+                    self.heaterA.set_setpoint(avgtemp)
+                    self.heaterB.set_setpoint(avgtemp)
                     self.dTnum +=1
                     timecalclist = []
                     Vhighcalclist = []
                     Vlowcalclist = []
                     dTcalclist = []
                     avgTcalclist = []
+
+                    currenttemp =avgtemp
+                    self.recentpidA = []
+                    self.recentpidAtime=[]
+                    self.recentpidB = []
+                    self.recentpidBtime=[]
+                    self.stabilityA = '-'
+                    self.stabilityB = '-'
+                    self.updateGUI(stamp="Stability A", data=self.stabilityA)
+                    self.updateGUI(stamp="Stability B", data=self.stabilityB)
+
+                    self.take_PID_Data()
+                    self.updateStats()
+                    while (self.tol != 'OK' or self.stable != 'OK'):
+                        self.take_PID_Data()
+                        self.updateStats()
+                        self.avgT = (self.tempA + self.tempB)/2
+
+                        # correct for difference between sample and heaters - more apparent for high temps
+                        if (self.stable == 'OK' and (avgtemp-self.avgT) > 3):
+                            self.heaterA.set_setpoint(currenttemp+3)
+                            self.heaterB.set_setpoint(currenttemp+3)
+                            currenttemp = currenttemp + 3
+                            self.recentpidA = []
+                            self.recentpidAtime=[]
+                            self.recentpidB = []
+                            self.recentpidBtime=[]
+                            self.stabilityA = '-'
+                            self.stabilityB = '-'
+                            self.stable == 'NO'
+                            self.tol = 'NO'
+                            self.updateGUI(stamp="Stability A", data=self.stabilityA)
+                            self.updateGUI(stamp="Stability B", data=self.stabilityB)
+                        #end if
+
+                        if abort_ID == 1: break
+                    #end while
+
                     # vary dT
                     self.measurement_indicator = 'start'
                     for point in range(len(dTlist)):
                         dT = dTlist[point]
                         print "Set dT to %f" %(dT)
                         # ramp to correct dT
-                        self.heaterA.set_setpoint(avgtemp+dT/2.0)
-                        self.heaterB.set_setpoint(avgtemp-dT/2.0)
+                        self.heaterA.set_setpoint(currenttemp+dT/2.0)
+                        self.heaterB.set_setpoint(currenttemp-dT/2.0)
                         self.recentpidA = []
                         self.recentpidAtime=[]
                         self.recentpidB = []
@@ -413,14 +453,10 @@ class TakeData:
 
                         self.take_PID_Data()
                         self.updateStats()
-                        n = 0
+
                         while (self.tol != 'OK' or self.stable != 'OK'):
-                            n = n + 1
-
                             self.take_PID_Data()
-
                             self.updateStats()
-
                             if abort_ID == 1: break
                         # end while
                         if abort_ID == 1: break
@@ -510,7 +546,7 @@ class TakeData:
         print "tpid: %.2f s\tpidA: %s C\tpidB: %s C" % (self.tpid, self.pidA, self.pidB)
 
         #check stability of PID
-        if (len(self.recentpidA)<5):
+        if (len(self.recentpidA)<4):
             self.recentpidA.append(self.pidA)
             self.recentpidAtime.append(self.tpid)
             self.recentpidB.append(self.pidB)
@@ -593,8 +629,6 @@ class TakeData:
         rawfile.write('%.2f,%.2f,'%(self.tempA,self.tempB))
         rawfile.write('%.3f,'%(self.Vhighcalc))
         rawfile.write('%.3f\n'%(self.Vlowcalc))
-
-
     #end def
 
     #--------------------------------------------------------------------------
@@ -1348,8 +1382,7 @@ class UserPanel(wx.Panel):
                 self.oscillation = str(maxLimit)
             self.text_osc.SetLabel(self.oscillation)
             oscillation = float(self.oscillation)
-            dTlist = [oscillation*i/4 for i in range(-4,5)+range(3,-5,-1)]
-
+            dTlist = [oscillation*i/4 for i in range(0,-5,-1)+range(-3,5)+range(3,-1,-1)]
         except ValueError:
             wx.MessageBox("Invalid input. Must be a number.", "Error")
     #end def
