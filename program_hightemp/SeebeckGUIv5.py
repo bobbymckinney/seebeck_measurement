@@ -409,7 +409,7 @@ class TakeData:
                     self.take_PID_Data()
                     self.updateStats()
                     if abort_ID == 1: break
-                    
+
                     while (self.tol != 'OK' or self.stable != 'OK'):
                         self.take_PID_Data()
                         self.updateStats()
@@ -418,8 +418,8 @@ class TakeData:
                         if (self.stabilityA != '-' or self.stabilityB != '-'):
                             if (np.abs(self.stabilityA) < self.stability_threshold or np.abs(self.stabilityB) < self.stability_threshold):
                                 if ((avgtemp - self.tempA > self.tolerance)):
-                                    self.heaterA.set_setpoint(currenttempA+3)
-                                    currenttempA = currenttempA + 3
+                                    self.heaterA.set_setpoint(currenttempA+2)
+                                    currenttempA = currenttempA + 2
                                     self.recentpidA = []
                                     self.recentpidAtime=[]
                                     self.stabilityA = '-'
@@ -432,8 +432,8 @@ class TakeData:
                                     self.updateGUI(stamp="Stability B", data=self.stabilityB)
                                 #end if
                                 if ((avgtemp - self.tempB > self.tolerance)):
-                                    self.heaterB.set_setpoint(currenttempB+3)
-                                    currenttempB = currenttempB + 3
+                                    self.heaterB.set_setpoint(currenttempB+2)
+                                    currenttempB = currenttempB + 2
                                     self.recentpidA = []
                                     self.recentpidAtime=[]
                                     self.stabilityA = '-'
