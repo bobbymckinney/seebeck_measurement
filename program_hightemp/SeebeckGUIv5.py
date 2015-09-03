@@ -395,7 +395,8 @@ class TakeData:
                     dTcalclist = []
                     avgTcalclist = []
 
-                    currenttemp =avgtemp
+                    currenttempA = avgtemp
+                    currenttempB = avgtemp
                     self.recentpidA = []
                     self.recentpidAtime=[]
                     self.recentpidB = []
@@ -407,39 +408,54 @@ class TakeData:
 
                     self.take_PID_Data()
                     self.updateStats()
+                    if abort_ID == 1: break
+                    
                     while (self.tol != 'OK' or self.stable != 'OK'):
                         self.take_PID_Data()
                         self.updateStats()
-                        self.avgT = (self.tempA + self.tempB)/2
-
-                        # correct for difference between sample and heaters - more apparent for high temps
-                        if (self.stable == 'OK' and (avgtemp-self.avgT) > 3):
-                            self.heaterA.set_setpoint(currenttemp+3)
-                            self.heaterB.set_setpoint(currenttemp+3)
-                            currenttemp = currenttemp + 3
-                            self.recentpidA = []
-                            self.recentpidAtime=[]
-                            self.recentpidB = []
-                            self.recentpidBtime=[]
-                            self.stabilityA = '-'
-                            self.stabilityB = '-'
-                            self.stable == 'NO'
-                            self.tol = 'NO'
-                            self.updateGUI(stamp="Stability A", data=self.stabilityA)
-                            self.updateGUI(stamp="Stability B", data=self.stabilityB)
-                        #end if
-
                         if abort_ID == 1: break
+                        # correct for difference between sample and heaters - more apparent for high temps
+                        if (self.stabilityA != '-' or self.stabilityB != '-'):
+                            if (np.abs(self.stabilityA) < self.stability_threshold or np.abs(self.stabilityB) < self.stability_threshold):
+                                if ((avgtemp - self.tempA > self.tolerance)):
+                                    self.heaterA.set_setpoint(currenttempA+3)
+                                    currenttempA = currenttempA + 3
+                                    self.recentpidA = []
+                                    self.recentpidAtime=[]
+                                    self.stabilityA = '-'
+                                    self.recentpidB = []
+                                    self.recentpidBtime=[]
+                                    self.stabilityB = '-'
+                                    self.stable == 'NO'
+                                    self.tol = 'NO'
+                                    self.updateGUI(stamp="Stability A", data=self.stabilityA)
+                                    self.updateGUI(stamp="Stability B", data=self.stabilityB)
+                                #end if
+                                if ((avgtemp - self.tempB > self.tolerance)):
+                                    self.heaterB.set_setpoint(currenttempB+3)
+                                    currenttempB = currenttempB + 3
+                                    self.recentpidA = []
+                                    self.recentpidAtime=[]
+                                    self.stabilityA = '-'
+                                    self.recentpidB = []
+                                    self.recentpidBtime=[]
+                                    self.stabilityB = '-'
+                                    self.stable == 'NO'
+                                    self.tol = 'NO'
+                                    self.updateGUI(stamp="Stability A", data=self.stabilityA)
+                                    self.updateGUI(stamp="Stability B", data=self.stabilityB)
+                                #end if
+                            #end if
                     #end while
-
+                    if abort_ID == 1: break
                     # vary dT
                     self.measurement_indicator = 'start'
                     for point in range(len(dTlist)):
                         dT = dTlist[point]
                         print "Set dT to %f" %(dT)
                         # ramp to correct dT
-                        self.heaterA.set_setpoint(currenttemp+dT/2.0)
-                        self.heaterB.set_setpoint(currenttemp-dT/2.0)
+                        self.heaterA.set_setpoint(currenttempA+dT/2.0)
+                        self.heaterB.set_setpoint(currenttempB-dT/2.0)
                         self.recentpidA = []
                         self.recentpidAtime=[]
                         self.recentpidB = []
@@ -453,7 +469,7 @@ class TakeData:
 
                         self.take_PID_Data()
                         self.updateStats()
-
+                        if abort_ID == 1: break
                         while (self.tol != 'OK' or self.stable != 'OK'):
                             self.take_PID_Data()
                             self.updateStats()
@@ -465,7 +481,7 @@ class TakeData:
 
                             self.measurement = 'ON'
                             self.updateGUI(stamp='Measurement', data=self.measurement)
-
+                            if abort_ID == 1: break
                             for i in range(4):
                                 self.data_measurement()
                                 if (point==len(dTlist)-1 and i == 3):
