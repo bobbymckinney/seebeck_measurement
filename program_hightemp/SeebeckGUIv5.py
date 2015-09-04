@@ -410,7 +410,7 @@ class TakeData:
                     self.updateStats()
                     if abort_ID == 1: break
 
-                    while (self.tol != 'OK' or self.stable != 'OK'):
+                    while (self.stable != 'OK'):
                         self.take_PID_Data()
                         self.updateStats()
                         if abort_ID == 1: break
@@ -470,14 +470,14 @@ class TakeData:
                         self.take_PID_Data()
                         self.updateStats()
                         if abort_ID == 1: break
-                        while (self.tol != 'OK' or self.stable != 'OK'):
+                        while (self.stable != 'OK'):
                             self.take_PID_Data()
                             self.updateStats()
                             if abort_ID == 1: break
                         # end while
                         if abort_ID == 1: break
                         # start measurement
-                        if (self.tol == 'OK' and self.stable == 'OK'):
+                        if (self.stable == 'OK'):
 
                             self.measurement = 'ON'
                             self.updateGUI(stamp='Measurement', data=self.measurement)
