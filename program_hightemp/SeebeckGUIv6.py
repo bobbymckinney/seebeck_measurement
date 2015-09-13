@@ -42,7 +42,7 @@ import EnhancedStatusBar as ESB
 # Keeps Windows from complaining that the port is already open:
 modbus.CLOSE_PORT_AFTER_EACH_CALL = True
 
-version = '5.0 (2015-08-31)'
+version = '6.0 (2015-09-10)'
 
 '''
 Global Variables:
@@ -88,6 +88,7 @@ filePath = 'global file path'
 myfile = 'global file'
 rawfile = 'global file'
 processfile = 'global file'
+logfile = 'global file'
 
 # Placers for the GUI plots:
 highV_list = []
@@ -386,9 +387,10 @@ class TakeData:
         try:
             while abort_ID == 0:
                 for avgtemp in measureList:
-                    print "Set avg temp tp %f" %(avgtemp)
-                    self.heaterA.set_setpoint(avgtemp)
-                    self.heaterB.set_setpoint(avgtemp)
+                    self.avgtemp = avgtemp
+                    print "Set avg temp to %f" %(self.avgtemp)
+                    self.heaterA.set_setpoint(self.avgtemp)
+                    self.heaterB.set_setpoint(self.avgtemp)
                     self.dTnum +=1
                     timecalclist = []
                     Vhighcalclist = []
@@ -396,8 +398,8 @@ class TakeData:
                     dTcalclist = []
                     avgTcalclist = []
 
-                    currenttempA = avgtemp
-                    currenttempB = avgtemp
+                    currenttempA = self.avgtemp
+                    currenttempB = self.avgtemp
                     self.recentpidA = []
                     self.recentpidAtime=[]
                     self.recentpidB = []
@@ -409,44 +411,76 @@ class TakeData:
 
                     self.take_PID_Data()
                     self.updateStats()
-                    if abort_ID == 1: break
+                    self.check_status()
 
-                    while (self.stable != 'OK'):
+                    if abort_ID == 1: break
+                    condition = False
+                    print 'start while loop'
+                    while (not condition):
                         self.take_PID_Data()
                         self.updateStats()
+                        self.check_status()
+
                         if abort_ID == 1: break
+
                         # correct for difference between sample and heaters - more apparent for high temps
-                        if (self.stabilityA != '-' or self.stabilityB != '-'):
-                            if (np.abs(self.stabilityA) < self.stability_threshold or np.abs(self.stabilityB) < self.stability_threshold):
-                                if ((avgtemp - self.tempA > self.tolerance)):
-                                    self.heaterA.set_setpoint(currenttempA+2)
+                        if (self.stabilityA != '-'):
+                            if (self.stableA and not self.tolA):
+                                if (self.tempA < self.avgtemp):
                                     currenttempA = currenttempA + 2
-                                    self.recentpidA = []
-                                    self.recentpidAtime=[]
-                                    self.stabilityA = '-'
-                                    self.recentpidB = []
-                                    self.recentpidBtime=[]
-                                    self.stabilityB = '-'
-                                    self.stable == 'NO'
-                                    self.tol = 'NO'
-                                    self.updateGUI(stamp="Stability A", data=self.stabilityA)
-                                    self.updateGUI(stamp="Stability B", data=self.stabilityB)
+                                    self.heaterA.set_setpoint(currenttempA)
+                                    print 'temp A too low'
+                                    print 'change pid A setpoint to %f' % (currenttempA)
                                 #end if
-                                if ((avgtemp - self.tempB > self.tolerance)):
-                                    self.heaterB.set_setpoint(currenttempB+2)
-                                    currenttempB = currenttempB + 2
-                                    self.recentpidA = []
-                                    self.recentpidAtime=[]
-                                    self.stabilityA = '-'
-                                    self.recentpidB = []
-                                    self.recentpidBtime=[]
-                                    self.stabilityB = '-'
-                                    self.stable == 'NO'
-                                    self.tol = 'NO'
-                                    self.updateGUI(stamp="Stability A", data=self.stabilityA)
-                                    self.updateGUI(stamp="Stability B", data=self.stabilityB)
+                                elif (self.tempA > self.avgtemp):
+                                    currenttempA = currenttempA - 2
+                                    self.heaterA.set_setpoint(currenttempA)
+                                    print 'temp A too high'
+                                    print 'change pid A setpoint to %f' % (currenttempA)
+                                #end elif
+                                print 'reset stability'
+                                self.recentpidA = []
+                                self.recentpidAtime=[]
+                                self.stabilityA = '-'
+                                self.recentpidB = []
+                                self.recentpidBtime=[]
+                                self.stabilityB = '-'
+                                self.stable = 'NO'
+                                self.tol = 'NO'
+                                self.updateGUI(stamp="Stability A", data=self.stabilityA)
+                                self.updateGUI(stamp="Stability B", data=self.stabilityB)
                                 #end if
                             #end if
+                        #end if
+                        if (self.stabilityB != '-'):
+                            if (self.stableB and not self.tolB):
+                                if (self.tempB < self.avgtemp):
+                                    currenttempB = currenttempB + 2
+                                    self.heaterB.set_setpoint(currenttempB)
+                                    print 'temp B too low'
+                                    print 'change pid B setpoint to %f' % (currenttempB)
+                                #end if
+                                elif (self.tempB > self.avgtemp):
+                                    currenttempB = currenttempB - 2
+                                    self.heaterB.set_setpoint(currenttempB)
+                                    print 'temp B too high'
+                                    print 'change pid B setpoint to %f' % (currenttempB)
+                                #end elif
+                                print 'reset stability'
+                                self.recentpidA = []
+                                self.recentpidAtime=[]
+                                self.stabilityA = '-'
+                                self.recentpidB = []
+                                self.recentpidBtime=[]
+                                self.stabilityB = '-'
+                                self.stable = 'NO'
+                                self.tol = 'NO'
+                                self.updateGUI(stamp="Stability A", data=self.stabilityA)
+                                self.updateGUI(stamp="Stability B", data=self.stabilityB)
+                                #end if
+                            #end if
+                        #end if
+                        condition = (self.tol == 'OK' and self.stable == 'OK')
                     #end while
                     if abort_ID == 1: break
                     # vary dT
@@ -454,9 +488,12 @@ class TakeData:
                     for point in range(len(dTlist)):
                         dT = dTlist[point]
                         print "Set dT to %f" %(dT)
+                        print 'set pid A to %f' %(currenttempA+dT/2.0)
+                        print 'set pid B to %f' %(currenttempB-dT/2.0)
                         # ramp to correct dT
                         self.heaterA.set_setpoint(currenttempA+dT/2.0)
                         self.heaterB.set_setpoint(currenttempB-dT/2.0)
+                        print 'reset stability'
                         self.recentpidA = []
                         self.recentpidAtime=[]
                         self.recentpidB = []
@@ -470,16 +507,18 @@ class TakeData:
 
                         self.take_PID_Data()
                         self.updateStats()
+                        self.check_status()
                         if abort_ID == 1: break
                         while (self.stable != 'OK'):
                             self.take_PID_Data()
                             self.updateStats()
+                            self.check_status()
                             if abort_ID == 1: break
                         # end while
                         if abort_ID == 1: break
                         # start measurement
                         if (self.stable == 'OK'):
-
+                            print 'begin seebeck measurement'
                             self.measurement = 'ON'
                             self.updateGUI(stamp='Measurement', data=self.measurement)
                             if abort_ID == 1: break
@@ -490,7 +529,7 @@ class TakeData:
                                 self.write_data_to_file()
                                 if abort_ID == 1: break
                             #end for
-
+                            print 'end seebeck measurement'
                             if abort_ID == 1: break
                             self.measurement = 'OFF'
 
@@ -500,9 +539,11 @@ class TakeData:
                         #end if
                         if abort_ID == 1: break
                     #end for
+
                     self.process_data()
                     if abort_ID == 1: break
                 #end for
+                print 'huzzah! program finished'
                 abort_ID = 1
             #end while
         #end try
@@ -523,7 +564,7 @@ class TakeData:
         else:
             self.updateGUI(stamp='Status Bar', data='Finished, Ready')
         #end else
-
+        print 'set both pid A and B to 25'
         self.heaterA.set_setpoint(25)
         self.heaterB.set_setpoint(25)
 
@@ -539,6 +580,7 @@ class TakeData:
         """ Takes data from the PID and proceeds to a
             function that checks the PID setpoints.
         """
+        print 'take pid data'
         try:
             # Take Data and time stamps:
             self.pidA = float(self.heaterA.get_pv())
@@ -563,7 +605,7 @@ class TakeData:
         print "tpid: %.2f s\tpidA: %s C\tpidB: %s C" % (self.tpid, self.pidA, self.pidB)
 
         #check stability of PID
-        if (len(self.recentpidA)<4):
+        if (len(self.recentpidA)<5):
             self.recentpidA.append(self.pidA)
             self.recentpidAtime.append(self.tpid)
             self.recentpidB.append(self.pidB)
@@ -596,14 +638,14 @@ class TakeData:
         self.updateGUI(stamp="PID B SP", data=self.pidBset)
 
         self.safety_check()
-        self.check_status()
+
     #end def
 
     #--------------------------------------------------------------------------
     def safety_check(self):
         global maxLimit
         global abort_ID
-
+        print 'safety check'
         if float(self.pidA) > maxLimit or float(self.pidB) > maxLimit:
             abort_ID = 1
     #end def
@@ -641,9 +683,8 @@ class TakeData:
 
         global rawfile
         print('\nWrite status to file\n')
-        rawfile.write('%.1f,'%(self.tVlow))
-        rawfile.write('%.2f,%.2f,' %(self.pidA,self.pidB))
-        rawfile.write('%.2f,%.2f,'%(self.tempA,self.tempB))
+        rawfile.write('%.1f,'%(time.time()- self.start))
+        rawfile.write('%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,' %(self.tempA,self.pidA,self.pidAset,self.tempB,self.pidB,self.pidBset))
         rawfile.write('%.3f,'%(self.Vhighcalc))
         rawfile.write('%.3f\n'%(self.Vlowcalc))
     #end def
@@ -659,18 +700,26 @@ class TakeData:
 
     #--------------------------------------------------------------------------
     def check_status(self):
+        print 'check tolerance'
+        self.tolA = (np.abs(self.tempA-self.avgtemp) < self.tolerance)
+        self.tolB = (np.abs(self.tempB-self.avgtemp) < self.tolerance)
+        print 'tolerance A: ',self.tolA
+        print 'tolerance B:', self.tolB
 
-        if (np.abs(self.pidA-self.pidAset) < self.tolerance and np.abs(self.pidB-self.pidBset) < self.tolerance):
-
+        if (self.tolA and self.tolB):
             self.tol = 'OK'
         #end if
-
         else:
             self.tol = 'NO'
 
+        print 'check stability'
         #end else
         if (self.stabilityA != '-' and self.stabilityB != '-'):
-            if (np.abs(self.stabilityA) < self.stability_threshold and np.abs(self.stabilityB) < self.stability_threshold):
+            self.stableA = (np.abs(self.stabilityA) < self.stability_threshold)
+            self.stableB = (np.abs(self.stabilityB) < self.stability_threshold)
+            print 'stable A: ',self.stableA
+            print 'stable B:', self.stableB
+            if (self.stableA and self.stableB):
                 self.stable = 'OK'
             #end if
             else:
@@ -690,6 +739,7 @@ class TakeData:
 
     #--------------------------------------------------------------------------
     def data_measurement(self):
+        print '\nseebeck data measurement'
         # Takes and writes to file the data on the Keithley
         # The only change between blocks like this one is the specific
         # channel on the Keithley that is being measured.
@@ -768,7 +818,6 @@ class TakeData:
     #--------------------------------------------------------------------------
     def voltage_Correction(self, raw_data, side):
         ''' raw_data must be in uV '''
-
         # Kelvin conversion for polynomial correction.
         if self.ttempA > self.ttempA2:
             tempA = float(self.tempA) + 273.15
@@ -871,7 +920,7 @@ class TakeData:
         vhigh = (self.Vhighcalc + self.Vhighcalc2)/2
         vlow = (self.Vlowcalc + self.Vlowcalc2)/2
         myfile.write('%f,' %(time))
-        myfile.write('%f,%f,' % (avgt, dt) )
+        myfile.write('%f,%f,%f,%f,' % (ta, tb, avgt, dt) )
         myfile.write('%.3f,%.3f' % (vhigh,vlow))
 
         timecalclist.append(time)
@@ -912,7 +961,7 @@ class TakeData:
     def process_data(self):
         global timecalclist, Vhighcalclist, Vlowcalclist, dTcalclist, avgTcalclist
         global processfile
-
+        print '\nprocess data to get seebeck coefficient'
         time = np.average(timecalclist)
         avgT = np.average(avgTcalclist)
 
@@ -967,7 +1016,7 @@ class TakeData:
     #--------------------------------------------------------------------------
     def create_plot(self, x, ylow, yhigh, fitLow, fitHigh, title):
         global filePath
-
+        print 'create seebeck plot'
         dpi = 400
 
         plt.ioff()
@@ -1249,10 +1298,10 @@ class UserPanel(wx.Panel):
                     rawfile.write('Start Time: ' + str(begin) + '\n')
                     processfile.write('Start Time: ' + str(begin) + '\n')
 
-                    dataheaders = 'time, avgtemp, deltatemp, Vhigh, Vlow, indicator\n'
+                    dataheaders = 'time, tempA, tempB, avgtemp, deltatemp, Vhigh, Vlow, indicator\n'
                     myfile.write(dataheaders)
 
-                    rawheaders = 'time, pidA, pidB, tempA, tempB, Vhigh, Vlow\n'
+                    rawheaders = 'time, tempA, pidA, pidAset, tempB, pidB, pidBset, Vhigh, Vlow\n'
                     rawfile.write(rawheaders)
 
                     processheaders = 'time(s),temperature (C),seebeck_high (uV/K),offset_high (uV),R^2_high,seebeck_low (uV/K),offset_low (uV),R^2_low\n'
