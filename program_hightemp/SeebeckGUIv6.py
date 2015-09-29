@@ -432,7 +432,7 @@ class TakeData:
                                     print 'temp A too low'
                                     print 'change pid A setpoint to %f' % (currenttempA)
                                 #end if
-                                elif (self.tempA > self.avgtemp):
+                                elif (self.tempA > self.avgtemp and self.avgtemp - currenttempA < 10):
                                     currenttempA = currenttempA - 2
                                     self.heaterA.set_setpoint(currenttempA)
                                     print 'temp A too high'
@@ -460,7 +460,7 @@ class TakeData:
                                     print 'temp B too low'
                                     print 'change pid B setpoint to %f' % (currenttempB)
                                 #end if
-                                elif (self.tempB > self.avgtemp):
+                                elif (self.tempB > self.avgtemp and self.avgtemp - currenttempB < 10):
                                     currenttempB = currenttempB - 2
                                     self.heaterB.set_setpoint(currenttempB)
                                     print 'temp B too high'
