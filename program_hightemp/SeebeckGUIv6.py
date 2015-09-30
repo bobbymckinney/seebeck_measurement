@@ -424,7 +424,6 @@ class TakeData:
                         if abort_ID == 1: break
 
                         # correct for difference between sample and heaters - more apparent for high temps
-
                         if (self.stableA and not self.tolA and currenttempA > self.avgtemp - 10):
                             if (self.tempA < self.avgtemp):
                                 currenttempA = currenttempA + 2
@@ -448,7 +447,6 @@ class TakeData:
                             self.updateGUI(stamp="Stability A", data=self.stabilityA)
                             #end if
                         #end if
-
                         if (self.stableB and not self.tolB and currenttempB > self.avgtemp - 10):
                             if (self.tempB < self.avgtemp):
                                 currenttempB = currenttempB + 2
@@ -472,8 +470,6 @@ class TakeData:
                             self.updateGUI(stamp="Stability B", data=self.stabilityB)
                             #end if
                         #end if
-
-
                         condition = (self.tol == 'OK' and self.stable == 'OK')
                     #end while
                     if abort_ID == 1: break
