@@ -424,62 +424,56 @@ class TakeData:
                         if abort_ID == 1: break
 
                         # correct for difference between sample and heaters - more apparent for high temps
-                        if (self.stabilityA != '-'):
-                            if (self.stableA and not self.tolA):
-                                if (self.tempA < self.avgtemp):
-                                    currenttempA = currenttempA + 2
-                                    self.heaterA.set_setpoint(currenttempA)
-                                    print 'temp A too low'
-                                    print 'change pid A setpoint to %f' % (currenttempA)
-                                #end if
-                                elif (self.tempA > self.avgtemp and self.avgtemp - currenttempA < 10):
-                                    currenttempA = currenttempA - 2
-                                    self.heaterA.set_setpoint(currenttempA)
-                                    print 'temp A too high'
-                                    print 'change pid A setpoint to %f' % (currenttempA)
-                                #end elif
-                                print 'reset stability'
-                                self.recentpidA = []
-                                self.recentpidAtime=[]
-                                self.stabilityA = '-'
-                                self.recentpidB = []
-                                self.recentpidBtime=[]
-                                self.stabilityB = '-'
-                                self.stable = 'NO'
-                                self.tol = 'NO'
-                                self.updateGUI(stamp="Stability A", data=self.stabilityA)
-                                self.updateGUI(stamp="Stability B", data=self.stabilityB)
-                                #end if
+
+                        if (self.stableA and not self.tolA and currenttempA > self.avgtemp - 10):
+                            if (self.tempA < self.avgtemp):
+                                currenttempA = currenttempA + 2
+                                self.heaterA.set_setpoint(currenttempA)
+                                print 'temp A too low'
+                                print 'change pid A setpoint to %f' % (currenttempA)
+                            #end if
+                            elif (self.tempA > self.avgtemp):
+                                currenttempA = currenttempA - 2
+                                self.heaterA.set_setpoint(currenttempA)
+                                print 'temp A too high'
+                                print 'change pid A setpoint to %f' % (currenttempA)
+                            #end elif
+                            print 'reset stability A'
+                            self.recentpidA = []
+                            self.recentpidAtime=[]
+                            self.stabilityA = '-'
+                            self.stableA = False
+                            self.stable = 'NO'
+                            self.tol = 'NO'
+                            self.updateGUI(stamp="Stability A", data=self.stabilityA)
                             #end if
                         #end if
-                        if (self.stabilityB != '-'):
-                            if (self.stableB and not self.tolB):
-                                if (self.tempB < self.avgtemp):
-                                    currenttempB = currenttempB + 2
-                                    self.heaterB.set_setpoint(currenttempB)
-                                    print 'temp B too low'
-                                    print 'change pid B setpoint to %f' % (currenttempB)
-                                #end if
-                                elif (self.tempB > self.avgtemp and self.avgtemp - currenttempB < 10):
-                                    currenttempB = currenttempB - 2
-                                    self.heaterB.set_setpoint(currenttempB)
-                                    print 'temp B too high'
-                                    print 'change pid B setpoint to %f' % (currenttempB)
-                                #end elif
-                                print 'reset stability'
-                                self.recentpidA = []
-                                self.recentpidAtime=[]
-                                self.stabilityA = '-'
-                                self.recentpidB = []
-                                self.recentpidBtime=[]
-                                self.stabilityB = '-'
-                                self.stable = 'NO'
-                                self.tol = 'NO'
-                                self.updateGUI(stamp="Stability A", data=self.stabilityA)
-                                self.updateGUI(stamp="Stability B", data=self.stabilityB)
-                                #end if
+
+                        if (self.stableB and not self.tolB and currenttempB > self.avgtemp - 10):
+                            if (self.tempB < self.avgtemp):
+                                currenttempB = currenttempB + 2
+                                self.heaterB.set_setpoint(currenttempB)
+                                print 'temp B too low'
+                                print 'change pid B setpoint to %f' % (currenttempB)
+                            #end if
+                            elif (self.tempB > self.avgtemp):
+                                currenttempB = currenttempB - 2
+                                self.heaterB.set_setpoint(currenttempB)
+                                print 'temp B too high'
+                                print 'change pid B setpoint to %f' % (currenttempB)
+                            #end elif
+                            print 'reset stability B'
+                            self.recentpidB = []
+                            self.recentpidBtime=[]
+                            self.stabilityB = '-'
+                            self.stableB = False
+                            self.stable = 'NO'
+                            self.tol = 'NO'
+                            self.updateGUI(stamp="Stability B", data=self.stabilityB)
                             #end if
                         #end if
+
+
                         condition = (self.tol == 'OK' and self.stable == 'OK')
                     #end while
                     if abort_ID == 1: break
@@ -711,23 +705,31 @@ class TakeData:
         #end if
         else:
             self.tol = 'NO'
+        #end else
 
         print 'check stability'
-        #end else
-        if (self.stabilityA != '-' and self.stabilityB != '-'):
+
+        if (self.stabilityA != '-'):
             self.stableA = (np.abs(self.stabilityA) < self.stability_threshold)
-            self.stableB = (np.abs(self.stabilityB) < self.stability_threshold)
             print 'stable A: ',self.stableA
-            print 'stable B:', self.stableB
-            if (self.stableA and self.stableB):
-                self.stable = 'OK'
-            #end if
-            else:
-                self.stable = 'NO'
+        #end if
+        else:
+            self.stableA = False
+            print 'stable A: ',self.stableA
+        #end else
+        if (self.stabilityB != '-'):
+            self.stableB = (np.abs(self.stabilityB) < self.stability_threshold)
+            print 'stable B: ',self.stableB
+        #end if
+        else:
+            self.stableB = False
+            print 'stable B: ',self.stableB
+        #end else
+        if (self.stableA and self.stableB):
+            self.stable = 'OK'
         #end if
         else:
             self.stable = 'NO'
-
         #end else
 
         print "tolerance: %s\nstable: %s\n" % (self.tol, self.stable)
