@@ -126,12 +126,21 @@ class Keithley_2700:
         """
         Scan the channel and take a reading
         """
-        self.ctrl.write(":ROUTe:SCAN:INTernal (@ %s)" % (channel)) # Specify Channel
-        #keithley.write(":SENSe1:FUNCtion 'TEMPerature'") # Specify Data type
-        self.ctrl.write(":ROUTe:SCAN:LSELect INTernal") # Scan Selected Channel
-        self.ctrl.write(":ROUTe:SCAN:LSELect NONE") # Stop Scan
-        data = self.ctrl.query(":FETCh?")
-        return str(data)[0:15] # Fetches Reading
+        measure = False
+        while (not measure):
+            try:
+                self.ctrl.write(":ROUTe:SCAN:INTernal (@ %s)" % (channel)) # Specify Channel
+                #keithley.write(":SENSe1:FUNCtion 'TEMPerature'") # Specify Data type
+                self.ctrl.write(":ROUTe:SCAN:LSELect INTernal") # Scan Selected Channel
+                self.ctrl.write(":ROUTe:SCAN:LSELect NONE") # Stop Scan
+                data = self.ctrl.query(":FETCh?")
+                data = float(str(data)[0:15])
+                measure = True
+            except exceptions.ValueError as VE:
+                print(VE)
+                measure = False
+        #end while
+        return data # Fetches Reading
     #end def
 
     #--------------------------------------------------------------------------
@@ -598,24 +607,28 @@ class TakeData:
         if (len(self.recentpidA)<5):
             self.recentpidA.append(self.pidA)
             self.recentpidAtime.append(self.tpid)
-            self.recentpidB.append(self.pidB)
-            self.recentpidBtime.append(self.tpid)
-
+        #end if
         else:
             self.recentpidA.pop(0)
             self.recentpidAtime.pop(0)
             self.recentpidA.append(self.pidA)
             self.recentpidAtime.append(self.tpid)
+            self.stabilityA = self.getStability(self.recentpidA,self.recentpidAtime)
+            print "stability A: %.4f C/min" % (self.stabilityA*60)
+            self.updateGUI(stamp="Stability A", data=self.stabilityA*60)
+        #end else
+
+        if (len(self.recentpidB)<5):
+            self.recentpidB.append(self.pidB)
+            self.recentpidBtime.append(self.tpid)
+        #end if
+        else:
             self.recentpidB.pop(0)
             self.recentpidBtime.pop(0)
             self.recentpidB.append(self.pidB)
             self.recentpidBtime.append(self.tpid)
-
-            self.stabilityA = self.getStability(self.recentpidA,self.recentpidAtime)
-            print "stability A: %.4f C/min" % (self.stabilityA*60)
             self.stabilityB = self.getStability(self.recentpidB,self.recentpidBtime)
             print "stability B: %.4f C/min" % (self.stabilityB*60)
-            self.updateGUI(stamp="Stability A", data=self.stabilityA*60)
             self.updateGUI(stamp="Stability B", data=self.stabilityB*60)
         #end else
 
@@ -963,11 +976,26 @@ class TakeData:
         time = np.average(timecalclist)
         avgT = np.average(avgTcalclist)
 
+        vhighout = self.findoutliers(Vhighcalclist)
+        vlowout = self.findoutliers(Vlowcalclist)
+
+        dThighlist = dTcalclist
+        dTlowlist = dTcalclist
+
+        #remove all outliers
+        for index in sorted(vhighout,reverse=True):
+            del Vhighcalclist[index]
+            del dThighlist[index]
+
+        for index in sorted(vlowout,reverse=True):
+            del Vlowcalclist[index]
+            del dTlowlist[index]
+
         results_high = {}
         results_low = {}
 
-        coeffs_high = np.polyfit(dTcalclist, Vhighcalclist, 1)
-        coeffs_low = np.polyfit(dTcalclist,Vlowcalclist,1)
+        coeffs_high = np.polyfit(dThighlist, Vhighcalclist, 1)
+        coeffs_low = np.polyfit(dTlowlist,Vlowcalclist,1)
         # Polynomial Coefficients
         polynomial_high = coeffs_high.tolist()
         polynomial_low = coeffs_low.tolist()
@@ -981,8 +1009,8 @@ class TakeData:
         p_high = np.poly1d(coeffs_high)
         p_low = np.poly1d(coeffs_low)
         # fitted values:
-        yhat_high = p_high(dTcalclist)
-        yhat_low = p_low(dTcalclist)
+        yhat_high = p_high(dThighlist)
+        yhat_low = p_low(dTlowlist)
         # mean of values:
         ybar_high = np.sum(Vhighcalclist)/len(Vhighcalclist)
         ybar_low = np.sum(Vlowcalclist)/len(Vlowcalclist)
@@ -1005,14 +1033,27 @@ class TakeData:
         fithigh['r-squared'] = rsquared_high
         fitlow['r-squared'] = rsquared_low
         celsius = u"\u2103"
-        self.create_plot(dTcalclist,Vlowcalclist,Vhighcalclist,fitlow,fithigh,str(avgT)+celsius)
+        self.create_plot(dTlowlist,dThighlist,Vlowcalclist,Vhighcalclist,fitlow,fithigh,str(avgT)+celsius)
 
         self.updateGUI(stamp="Seebeck High", data=seebeck_high)
         self.updateGUI(stamp="Seebeck Low", data=seebeck_low)
     #end def
 
     #--------------------------------------------------------------------------
-    def create_plot(self, x, ylow, yhigh, fitLow, fitHigh, title):
+    def findoutliers(self,values):
+        avg = np.average(values)
+        std = np.std(values)
+        outliers = []
+        for val in values:
+            if np.abs(val - avg) > std:
+                outliers.append(values.index(val))
+            #end if
+        #end for
+        return outliers
+    #end def
+
+    #--------------------------------------------------------------------------
+    def create_plot(self, xlow, xhigh, ylow, yhigh, fitLow, fitHigh, title):
         global filePath
         print 'create seebeck plot'
         dpi = 400
@@ -1028,15 +1069,15 @@ class TakeData:
         ax.set_ylabel("dV (uV)")
 
         # Plot data points:
-        ax.scatter(x, ylow, color='r', marker='.', label="Low Voltage")
-        ax.scatter(x, yhigh, color='b', marker='.', label="High Voltage")
+        ax.scatter(xlow, ylow, color='r', marker='.', label="Low Voltage")
+        ax.scatter(xhigh, yhigh, color='b', marker='.', label="High Voltage")
 
         # Overlay linear fits:
         coeffsLow = fitLow['polynomial']
         coeffsHigh = fitHigh['polynomial']
         p_low = np.poly1d(coeffsLow)
         p_high = np.poly1d(coeffsHigh)
-        xp = np.linspace(min(x), max(x), 5000)
+        xp = np.linspace(min(xlow+xhigh), max(xlow+xhigh), 5000)
         low_eq = 'dV = %.2f*(dT) + %.2f' % (coeffsLow[0], coeffsLow[1])
         high_eq = 'dV = %.2f*(dT) + %.2f' % (coeffsHigh[0], coeffsHigh[1])
         ax.plot(xp, p_low(xp), '-', c='#FF9900', label="Low Voltage Fit\n %s" % low_eq)
