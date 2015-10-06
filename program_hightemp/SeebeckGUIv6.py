@@ -976,20 +976,20 @@ class TakeData:
         time = np.average(timecalclist)
         avgT = np.average(avgTcalclist)
 
-        vhighout = self.findoutliers(Vhighcalclist)
-        vlowout = self.findoutliers(Vlowcalclist)
+        #vhighout = self.findoutliers(Vhighcalclist)
+        #vlowout = self.findoutliers(Vlowcalclist)
 
         dThighlist = dTcalclist
         dTlowlist = dTcalclist
 
         #remove all outliers
-        for index in sorted(vhighout,reverse=True):
-            del Vhighcalclist[index]
-            del dThighlist[index]
+        #for index in sorted(vhighout,reverse=True):
+            #del Vhighcalclist[index]
+            #del dThighlist[index]
 
-        for index in sorted(vlowout,reverse=True):
-            del Vlowcalclist[index]
-            del dTlowlist[index]
+        #for index in sorted(vlowout,reverse=True):
+            #del Vlowcalclist[index]
+            #del dTlowlist[index]
 
         results_high = {}
         results_low = {}
