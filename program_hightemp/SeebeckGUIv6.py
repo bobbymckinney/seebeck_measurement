@@ -62,7 +62,8 @@ stability_threshold = 0.25/60
 oscillation = 8 # Degree range that the PID will oscillate in
 tolerance = (oscillation/8) # This must be set to less than oscillation
 measureList = []
-dTlist = [0,-2,-4,-6,-8,-6,-4,-2,0,2,4,6,8,6,4,2,0]
+#dTlist = [0,-2,-4,-6,-8,-6,-4,-2,0,2,4,6,8,6,4,2,0]
+dTlist = [0,-4,-8,-4,0,4,8,4,0]
 
 maxLimit = 700 # Restricts the user to a max temperature
 
@@ -604,7 +605,7 @@ class TakeData:
         print "tpid: %.2f s\tpidA: %s C\tpidB: %s C" % (self.tpid, self.pidA, self.pidB)
 
         #check stability of PID
-        if (len(self.recentpidA)<5):
+        if (len(self.recentpidA)<3):
             self.recentpidA.append(self.pidA)
             self.recentpidAtime.append(self.tpid)
         #end if
@@ -618,7 +619,7 @@ class TakeData:
             self.updateGUI(stamp="Stability A", data=self.stabilityA*60)
         #end else
 
-        if (len(self.recentpidB)<5):
+        if (len(self.recentpidB)<3):
             self.recentpidB.append(self.pidB)
             self.recentpidBtime.append(self.tpid)
         #end if
@@ -1487,7 +1488,8 @@ class UserPanel(wx.Panel):
                 self.oscillation = str(maxLimit)
             self.text_osc.SetLabel(self.oscillation)
             oscillation = float(self.oscillation)
-            dTlist = [oscillation*i/4 for i in range(0,-5,-1)+range(-3,5)+range(3,-1,-1)]
+            #dTlist = [oscillation*i/4 for i in range(0,-5,-1)+range(-3,5)+range(3,-1,-1)]
+            dTlist = [oscillation*i/2 for i in range(0,-3,-1)+range(-1,3)+range(1,-1,-1)]
         except ValueError:
             wx.MessageBox("Invalid input. Must be a number.", "Error")
     #end def
