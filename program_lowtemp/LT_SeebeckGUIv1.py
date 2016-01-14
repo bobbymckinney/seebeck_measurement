@@ -43,7 +43,7 @@ import EnhancedStatusBar as ESB
 # Keeps Windows from complaining that the port is already open:
 modbus.CLOSE_PORT_AFTER_EACH_CALL = True
 
-version = '7.0 (2015-11-19)'
+version = '1.0 (2016-01-12)'
 
 '''
 Global Variables:
@@ -64,24 +64,20 @@ measureList = []
 #dTlist = [0,-2,-4,-6,-8,-6,-4,-2,0,2,4,6,8,6,4,2,0]
 dTlist = [0,-4,-8,-4,0,4,8,4,0]
 
-maxLimit = 650 # Restricts the user to a max temperature
+maxLimit = 150 # Restricts the user to a max temperature
 
 abort_ID = 0 # Abort method
 
 # Global placers for instruments
-k2700 = ''
-sampleApid = ''
-sampleBpid = ''
-blockApid = ''
-blockBpid = ''
+k2000 = ''
+pidA = ''
+pidB = ''
 
 tc_type = "k-type" # Set the thermocouple type in order to use the correct voltage correction
 
 # Channels corresponding to switch card:
-#tempAChannel = '109'
-#tempBChannel = '110'
-chromelChannel = '107'
-alumelChannel = '108'
+chromelChannel = '4'
+alumelChannel = '4'
 
 # placer for directory
 filePath = 'global file path'
@@ -100,9 +96,6 @@ sampletempA_list = []
 tsampletempA_list = []
 sampletempB_list = []
 tsampletempB_list = []
-tblocktemp_list = []
-blocktempA_list = []
-blocktempB_list = []
 
 timecalclist = []
 Vchromelcalclist = []
@@ -156,6 +149,50 @@ class Keithley_2700:
 ###############################################################################
 
 ###############################################################################
+class Keithley_2000:
+    ''' Used for the matrix card operations. '''
+    #--------------------------------------------------------------------------
+    def __init__(self, instr):
+        self.ctrl = ResourceManager.open_resource(instr)
+        #self.ctrl.write("*rst")
+        self.ctrl.write("trig:delay 0")
+        self.ctrl.write("trig:count 1")
+        self.ctrl.write("temp:tcouple:type k")
+        self.ctrl.write("volt:dc:nplcycles 1")
+        self.ctrl.write("temp:nplcycles 1")
+
+    #end init
+        
+    #--------------------------------------------------------------------------
+    def fetch(self, channel):
+        """ 
+        Scan the channel and take a reading 
+        """
+        if (channel == VlowChannel or channel == VhighChannel):
+            self.ctrl.write("func 'volt:dc'")
+            
+        #end if
+        else:
+            self.ctrl.write("func 'temperature'")
+            
+            
+        #end else
+        time.sleep(0.2)
+        self.ctrl.write("rout:clos (@ %s)" % (channel)) # Specify Channel
+        time.sleep(1)
+        data = self.ctrl.query("fetch?")
+        return str(data)[0:-1] # Fetches Reading    
+    #end def
+        
+    #--------------------------------------------------------------------------
+    def openAllChannels(self):
+        self.ctrl.write("ROUTe:OPEN:ALL")    
+    #end def
+
+#end class
+###############################################################################
+
+###############################################################################
 class PID(omegacn7500.OmegaCN7500):
 
     #--------------------------------------------------------------------------
@@ -191,61 +228,41 @@ class Setup:
         """
         Prepare the Keithley to take data on the specified channels:
         """
-        global k2700
-        global sampleApid
-        global sampleBpid
-        global blockApid
-        global blockBpid
-
-        # Define Keithley instrument port:
-        self.k2700 = k2700 = Keithley_2700('GPIB0::1::INSTR')
-        # Define the ports for the PID
-        self.sampleApid = sampleApid = PID('/dev/cu.usbserial', 1) # Top heater
-        self.sampleBpid = sampleBpid = PID('/dev/cu.usbserial', 2) # Bottom heater
-        self.blockApid = blockApid = PID('/dev/cu.usbserial', 3) # Top block
-        self.blockBpid = blockBpid = PID('/dev/cu.usbserial', 4) # Top block
-
+        global k2000
+        global pidA
+        global pidB
 
         """
         Prepare the Keithley for operation:
         """
-        self.k2700.openAllChannels
-        # Define the type of measurement for the channels we are looking at:
-        #self.k2700.ctrl.write(":SENSe1:TEMPerature:TCouple:TYPE K") # Set ThermoCouple type
-        #self.k2700.ctrl.write(":SENSe1:FUNCtion 'TEMPerature', (@ 109,110)")
-        self.k2700.ctrl.write(":SENSe1:FUNCtion 'VOLTage:DC', (@ 107,108)")
-
-        self.k2700.ctrl.write(":TRIGger:SEQuence1:DELay 0")
-        self.k2700.ctrl.write(":TRIGger:SEQuence1:COUNt 1")    # Set the count rate
-
-        # Sets the the acquisition rate of the measurements
-        self.k2700.ctrl.write(":SENSe1:VOLTage:DC:NPLCycles 4, (@ 107,108)") # Sets integration period based on frequency
-        #self.k2700.ctrl.write(":SENSe1:TEMPerature:NPLCycles 4, (@ 109,110)")
-
+        # Define Keithley instrument port:
+        self.k2000 = k2000 = Keithley_2000('GPIB0::16::INSTR')
+        self.k2000.openAllChannels
         """
         Prepare the PID for operation:
         """
+        # Define the ports for the PID
+        self.pidA = pidA = PID('/dev/cu.usbserial', 1) # Top heater
+        self.pidB = pidB = PID('/dev/cu.usbserial', 2) # Bottom heater
         # Set the control method to PID
-        self.sampleApid.write_register(PID.control, PID.pIDcontrol)
-        self.sampleBpid.write_register(PID.control, PID.pIDcontrol)
+        self.pidA.write_register(PID.control, PID.pIDcontrol)
+        self.pidB.write_register(PID.control, PID.pIDcontrol)
 
         # Set the PID to auto parameter
-        self.sampleApid.write_register(PID.pIDparam, PID.pIDparam_Auto)
-        self.sampleBpid.write_register(PID.pIDparam, PID.pIDparam_Auto)
+        self.pidA.write_register(PID.pIDparam, PID.pIDparam_Auto)
+        self.pidB.write_register(PID.pIDparam, PID.pIDparam_Auto)
 
         # Set the thermocouple type
-        self.sampleApid.write_register(PID.tCouple, PID.tCouple_K)
-        self.sampleBpid.write_register(PID.tCouple, PID.tCouple_K)
-        self.blockApid.write_register(PID.tCouple, PID.tCouple_K)
-        self.blockBpid.write_register(PID.tCouple, PID.tCouple_K)
+        self.pidA.write_register(PID.tCouple, PID.tCouple_K)
+        self.pidB.write_register(PID.tCouple, PID.tCouple_K)
 
         # Set the control to heating only
-        self.sampleApid.write_register(PID.heatingCoolingControl, PID.heating)
-        self.sampleBpid.write_register(PID.heatingCoolingControl, PID.heating)
+        self.pidA.write_register(PID.heatingCoolingControl, PID.heating)
+        self.pidB.write_register(PID.heatingCoolingControl, PID.heating)
 
         # Run the controllers
-        self.sampleApid.run()
-        self.sampleBpid.run()
+        self.pidA.run()
+        self.pidB.run()
 
 #end class
 ###############################################################################
@@ -283,11 +300,9 @@ class InitialCheck:
     """
     #--------------------------------------------------------------------------
     def __init__(self):
-        self.k2700 = k2700
-        self.sampleApid = sampleApid
-        self.sampleBpid = sampleBpid
-        self.blockApid = blockApid
-        self.blockBpid = blockBpid
+        self.k2000 = k2000
+        self.pidA = pidA
+        self.pidB = pidB
 
         self.take_temperature_Data()
 
@@ -301,17 +316,13 @@ class InitialCheck:
         """
 
         # Take Data and time stamps:
-        self.sampletempA = float(self.sampleApid.get_pv())
+        self.sampletempA = float(self.pidA.get_pv())
         time.sleep(0.1)
-        self.sampletempB = float(self.sampleBpid.get_pv())
+        self.sampletempB = float(self.pidB.get_pv())
         time.sleep(0.1)
-        self.blocktempA = float(self.blockApid.get_pv())
+        self.samplesetpointA = float(self.pidA.get_setpoint())
         time.sleep(0.1)
-        self.blocktempB = float(self.blockBpid.get_pv())
-        time.sleep(0.1)
-        self.samplesetpointA = float(self.sampleApid.get_setpoint())
-        time.sleep(0.1)
-        self.samplesetpointB = float(self.sampleBpid.get_setpoint())
+        self.samplesetpointB = float(self.pidB.get_setpoint())
         time.sleep(0.1)
 
         self.updateGUI(stamp="Sample Temp A Init", data=self.sampletempA)
@@ -320,10 +331,7 @@ class InitialCheck:
         self.updateGUI(stamp="Setpoint A Init", data=self.samplesetpointA)
         self.updateGUI(stamp="Setpoint B Init", data=self.samplesetpointB)
 
-        self.updateGUI(stamp="Block Temp A Init", data=self.blocktempA)
-        self.updateGUI(stamp="Block Temp B Init", data=self.blocktempB)
-
-        print "\nsample temp A: %f C\nblock temp A: %f C\nsample temp B: %f C\nblock temp B: %f C" % (self.sampletempA, self.blocktempA, self.sampletempB, self.blocktempB)
+        print "\nsample temp A: %f C\nsample temp B: %f C" % (self.sampletempA, self.sampletempB)
 
     #end def
 
@@ -331,9 +339,9 @@ class InitialCheck:
     def take_voltage_Data(self):
         """ Takes data from the PID
         """
-        self.Vchromelraw = float(self.k2700.fetch(chromelChannel))*10**6
+        self.Vchromelraw = float(self.k2000.fetch(chromelChannel))*10**6
         self.Vchromelcalc = self.voltage_Correction(self.Vchromelraw,self.sampletempA,self.sampletempB, 'chromel')
-        self.Valumelraw = float(self.k2700.fetch(alumelChannel))*10**6
+        self.Valumelraw = float(self.k2000.fetch(alumelChannel))*10**6
         self.Valumelcalc = self.voltage_Correction(self.Valumelraw,self.sampletempA,self.sampletempB, 'alumel')
 
         self.updateGUI(stamp="Chromel Voltage Init", data=float(self.Vchromelcalc))
@@ -444,11 +452,9 @@ class TakeData:
     #--------------------------------------------------------------------------
     def __init__(self):
         global abort_ID
-        global k2700
-        global sampleApid
-        global sampleBpid
-        global blockApid
-        global blockBpid
+        global k2000
+        global pidA
+        global pidB
 
         global tolerance
         global stability_threshold
@@ -459,11 +465,9 @@ class TakeData:
 
         global timecalclist, Vchromelcalclist, Valumelcalclist, dTcalclist, avgTcalclist
 
-        self.k2700 = k2700
-        self.sampleApid = sampleApid
-        self.sampleBpid = sampleBpid
-        self.blockApid = blockApid
-        self.blockBpid = blockBpid
+        self.k2000 = k2000
+        self.pidA = pidA
+        self.pidB = pidB
 
         self.tolerance = tolerance
         self.stability_threshold = stability_threshold
@@ -492,7 +496,7 @@ class TakeData:
                     print "set sample A temp to %f" %(self.avgtemp)
                     while True:
                         try:
-                            self.sampleApid.set_setpoint(self.avgtemp)
+                            self.pidA.set_setpoint(self.avgtemp)
                             break
                         except IOError:
                             print 'IOError: communication failure'
@@ -500,7 +504,7 @@ class TakeData:
                     print "set sample B temp to %f" %(self.avgtemp)
                     while True:
                         try:
-                            self.sampleBpid.set_setpoint(self.avgtemp)
+                            self.pidB.set_setpoint(self.avgtemp)
                             break
                         except IOError:
                             print 'IOError: communication failure'
@@ -544,7 +548,7 @@ class TakeData:
                         print 'set sample pid A to %f' %(self.avgtemp+self.dT/2.0)
                         while True:
                             try:
-                                self.sampleApid.set_setpoint(self.avgtemp+self.dT/2.0)
+                                self.pidA.set_setpoint(self.avgtemp+self.dT/2.0)
                                 break
                             except IOError:
                                 print 'IOError: communication failure'
@@ -552,7 +556,7 @@ class TakeData:
                         print 'set sample pid B to %f' %(self.avgtemp-self.dT/2.0)
                         while True:
                             try:
-                                self.sampleBpid.set_setpoint(self.avgtemp-self.dT/2.0)
+                                self.pidB.set_setpoint(self.avgtemp-self.dT/2.0)
                                 break
                             except IOError:
                                 print 'IOError: communication failure'
@@ -622,7 +626,7 @@ class TakeData:
         print 'set sample A temp to 25'
         while True:
             try:
-                self.sampleApid.set_setpoint(25)
+                self.pidA.set_setpoint(25)
                 break
             except IOError:
                 print 'IOError: communication failure'
@@ -630,7 +634,7 @@ class TakeData:
         print 'set sample B temp to 25'
         while True:
             try:
-                self.sampleBpid.set_setpoint(25)
+                self.pidB.set_setpoint(25)
                 break
             except IOError:
                 print 'IOError: communication failure'
@@ -648,41 +652,33 @@ class TakeData:
         print 'take temperature data'
         try:
             # Take Data and time stamps:
-            self.sampletempA = float(self.sampleApid.get_pv())
+            self.sampletempA = float(self.pidA.get_pv())
             time.sleep(0.1)
-            self.sampletempB = float(self.sampleBpid.get_pv())
-            time.sleep(0.1)
-            self.blocktempA = float(self.blockApid.get_pv())
-            time.sleep(0.1)
-            self.blocktempB = float(self.blockBpid.get_pv())
+            self.sampletempB = float(self.pidB.get_pv())
             time.sleep(0.1)
 
             # Get the current setpoints on the PID:
-            self.samplesetpointA = float(self.sampleApid.get_setpoint())
+            self.samplesetpointA = float(self.pidA.get_setpoint())
             time.sleep(0.1)
-            self.samplesetpointB = float(self.sampleBpid.get_setpoint())
+            self.samplesetpointB = float(self.pidB.get_setpoint())
             time.sleep(0.1)
 
         except exceptions.ValueError as VE:
             # Take Data and time stamps:
-            self.sampletempA = float(self.sampleApid.get_pv())
+            self.sampletempA = float(self.pidA.get_pv())
             time.sleep(0.1)
-            self.sampletempB = float(self.sampleBpid.get_pv())
-            time.sleep(0.1)
-            self.blocktempA = float(self.blockApid.get_pv())
-            time.sleep(0.1)
-            self.blocktempB = float(self.blockBpid.get_pv())
+            self.sampletempB = float(self.pidB.get_pv())
             time.sleep(0.1)
 
             # Get the current setpoints on the PID:
-            self.samplesetpointA = float(self.sampleApid.get_setpoint())
+            self.samplesetpointA = float(self.pidA.get_setpoint())
             time.sleep(0.1)
-            self.samplesetpointB = float(self.sampleBpid.get_setpoint())
+            self.samplesetpointB = float(self.pidB.get_setpoint())
             time.sleep(0.1)
 
         self.time_temperature = time.time() - self.start
 
-        print "\ntime: %.2f s\nsample temp A: %f C\nblock temp A: %f C\nsample temp B: %f C\nblock temp B: %f C" % (self.time_temperature, self.sampletempA, self.blocktempA, self.sampletempB, self.blocktempB)
+        print "\ntime: %.2f s\nsample temp A: %f C\nsample temp B: %f C" % (self.time_temperature, self.sampletempA, self.sampletempB)
 
         #check stability of PID
         if (len(self.recenttempA)<3):
@@ -721,16 +717,12 @@ class TakeData:
         self.updateGUI(stamp="Setpoint A", data=self.samplesetpointA)
         self.updateGUI(stamp="Setpoint B", data=self.samplesetpointB)
 
-        self.updateGUI(stamp="Block Temp A", data=self.blocktempA)
-        self.updateGUI(stamp="Block Temp B", data=self.blocktempB)
-        self.updateGUI(stamp="Time Block Temp", data=self.time_temperature)
-
         global rawfile
         print('\nwrite temperatures to file\n')
         rawfile.write('%.1f,'%(self.time_temperature))
-        rawfile.write('%.2f,%.2f,%.2f,' %(self.sampletempA,self.samplesetpointA,self.blocktempA))
+        rawfile.write('%.2f,%.2f,' %(self.sampletempA,self.samplesetpointA))
         rawfile.write(str(self.stabilityA)+',')
-        rawfile.write('%.2f,%.2f,%.2f,' %(self.sampletempB,self.samplesetpointB,self.blocktempB))
+        rawfile.write('%.2f,%.2f,' %(self.sampletempB,self.samplesetpointB))
         rawfile.write(str(self.stabilityB)+',')
         self.safety_check()
     #end def
@@ -748,39 +740,15 @@ class TakeData:
             abort_ID = 1
             print 'Safety Failure: Sample Temp B greater than Max Limit'
         #end if
-        if self.blocktempA > maxLimit:
-            abort_ID = 1
-            print 'Safety Failure: Block Temp A greater than Max Limit'
-        #end if
-        if self.blocktempB > maxLimit:
-            abort_ID = 1
-            print 'Safety Failure: Block Temp B greater than Max Limit'
-        #end if
-        if self.blocktempA > self.sampletempA + 100:
-            abort_ID = 1
-            print 'Safety Failure: Block Temp A  100 C greater than Sample Temp A'
-        #end if
-        if self.blocktempB > self.sampletempB + 100:
-            abort_ID = 1
-            print 'Safety Failure: Block Temp B  100 C greater than Sample Temp B'
-        #end if
-        if self.sampletempA > self.blocktempA + 100:
-            abort_ID = 1
-            print 'Safety Failure: Sample Temp A  100 C greater than Block Temp A'
-        #end if
-        if self.sampletempB > self.blocktempB + 100:
-            abort_ID = 1
-            print 'Safety Failure: Sample Temp B  100 C greater than Block Temp B'
-        #end if
     #end def
 
     #--------------------------------------------------------------------------
     def take_voltage_Data(self):
         print('take voltage data\n')
 
-        self.Vchromelraw = float(self.k2700.fetch(chromelChannel))*10**6
+        self.Vchromelraw = float(self.k2000.fetch(chromelChannel))*10**6
         self.Vchromelcalc = self.voltage_Correction(self.Vchromelraw,self.sampletempA,self.sampletempB, 'chromel')
-        self.Valumelraw = float(self.k2700.fetch(alumelChannel))*10**6
+        self.Valumelraw = float(self.k2000.fetch(alumelChannel))*10**6
         self.Valumelcalc = self.voltage_Correction(self.Valumelraw,self.sampletempA,self.sampletempB, 'alumel')
         self.time_voltage = time.time() - self.start
 
@@ -862,9 +830,9 @@ class TakeData:
         global rawfile
         print '\nseebeck data measurement'
         # Takes and writes to file the data on the Keithley
-        # The only change between blocks like this one is the specific
+        # The only change between code like this one is the specific
         # channel on the Keithley that is being measured.
-        self.sampletempA = float(self.sampleApid.get_pv())
+        self.sampletempA = float(self.pidA.get_pv())
         self.time_sampletempA = time.time() - self.start
         self.updateGUI(stamp="Time Sample Temp A", data=self.time_sampletempA)
         self.updateGUI(stamp="Sample Temp A", data=self.sampletempA)
@@ -872,7 +840,7 @@ class TakeData:
 
         time.sleep(0.2)
 
-        self.sampletempB = float(self.sampleBpid.get_pv())
+        self.sampletempB = float(self.pidB.get_pv())
         self.time_sampletempB = time.time() - self.start
         self.updateGUI(stamp="Time Sample Temp B", data=self.time_sampletempB)
         self.updateGUI(stamp="Sample Temp B", data=self.sampletempB)
@@ -880,7 +848,7 @@ class TakeData:
 
         time.sleep(0.2)
 
-        self.Vchromelraw = float(self.k2700.fetch(chromelChannel))*10**6
+        self.Vchromelraw = float(self.k2000.fetch(chromelChannel))*10**6
         self.Vchromelcalc = self.voltage_Correction(self.Vchromelraw,self.sampletempA,self.sampletempB, 'chromel')
         self.time_Vchromel = time.time() - self.start
         self.updateGUI(stamp="Time Chromel Voltage", data=self.time_Vchromel)
@@ -889,7 +857,7 @@ class TakeData:
 
         time.sleep(0.2)
 
-        self.Valumelraw = float(self.k2700.fetch(alumelChannel))*10**6
+        self.Valumelraw = float(self.k2000.fetch(alumelChannel))*10**6
         self.Valumelcalc = self.voltage_Correction(self.Valumelraw,self.sampletempA,self.sampletempB, 'alumel')
         self.time_Valumel = time.time() - self.start
         self.updateGUI(stamp="Time Alumel Voltage", data=self.time_Valumel)
@@ -900,16 +868,16 @@ class TakeData:
 
 
         rawfile.write('%.1f,'%(self.time_sampletempA))
-        rawfile.write('%.2f,%.2f,%.2f,' %(self.sampletempA,self.samplesetpointA,self.blocktempA))
+        rawfile.write('%.2f,%.2f,' %(self.sampletempA,self.samplesetpointA))
         rawfile.write(str(self.stabilityA)+',')
-        rawfile.write('%.2f,%.2f,%.2f,' %(self.sampletempB,self.samplesetpointB,self.blocktempB))
+        rawfile.write('%.2f,%.2f,' %(self.sampletempB,self.samplesetpointB))
         rawfile.write(str(self.stabilityB)+',')
         rawfile.write('%.3f,%.3f,%.3f,%.3f,'%(self.Vchromelraw, self.Vchromelcalc,self.Valumelraw, self.Valumelcalc))
         rawfile.write(str(self.tol)+','+str(self.stable)+'\n')
 
         print('Symmetrize the measurement and repeat')
 
-        self.Valumelraw2 = float(self.k2700.fetch(alumelChannel))*10**6
+        self.Valumelraw2 = float(self.k2000.fetch(alumelChannel))*10**6
         self.Valumelcalc2 = self.voltage_Correction(self.Valumelraw2,self.sampletempA,self.sampletempB, 'alumel')
         self.time_Valumel2 = time.time() - self.start
         self.updateGUI(stamp="Time Alumel Voltage", data=self.time_Valumel2)
@@ -918,7 +886,7 @@ class TakeData:
 
         time.sleep(0.2)
 
-        self.Vchromelraw2 = float(self.k2700.fetch(chromelChannel))*10**6
+        self.Vchromelraw2 = float(self.k2000.fetch(chromelChannel))*10**6
         self.Vchromelcalc2 = self.voltage_Correction(self.Vchromelraw2,self.sampletempA,self.sampletempB, 'chromel')
         self.time_Vchromel2 = time.time() - self.start
         self.updateGUI(stamp="Time Chromel Voltage", data=self.time_Vchromel2)
@@ -927,7 +895,7 @@ class TakeData:
 
         time.sleep(0.2)
 
-        self.sampletempB2 = float(self.sampleBpid.get_pv())
+        self.sampletempB2 = float(self.pidB.get_pv())
         self.time_sampletempB2 = time.time() - self.start
         self.updateGUI(stamp="Time Sample Temp B", data=self.time_sampletempB2)
         self.updateGUI(stamp="Sample Temp B", data=self.sampletempB2)
@@ -935,16 +903,16 @@ class TakeData:
 
         time.sleep(0.2)
 
-        self.sampletempA2 = float(self.sampleApid.get_pv())
+        self.sampletempA2 = float(self.pidA.get_pv())
         self.time_sampletempA2 = time.time() - self.start
         self.updateGUI(stamp="Time Sample Temp A", data=self.time_sampletempA2)
         self.updateGUI(stamp="Sample Temp A", data=self.sampletempA2)
         print "time: %.2f s\t sample temp A: %.2f C" % (self.time_sampletempA2, self.sampletempA2)
 
         rawfile.write('%.1f,'%(self.time_Valumel2))
-        rawfile.write('%.2f,%.2f,%.2f,' %(self.sampletempA2,self.samplesetpointA,self.blocktempA))
+        rawfile.write('%.2f,%.2f,' %(self.sampletempA2,self.samplesetpointA))
         rawfile.write(str(self.stabilityA)+',')
-        rawfile.write('%.2f,%.2f,%.2f,' %(self.sampletempB2,self.samplesetpointB,self.blocktempB))
+        rawfile.write('%.2f,%.2f,' %(self.sampletempB2,self.samplesetpointB))
         rawfile.write(str(self.stabilityB)+',')
         rawfile.write('%.3f,%.3f,%.3f,%.3f,'%(self.Vchromelraw2, self.Vchromelcalc2,self.Valumelraw2, self.Valumelcalc2))
         rawfile.write(str(self.tol)+','+str(self.stable)+'\n')
@@ -1408,7 +1376,7 @@ class UserPanel(wx.Panel):
                     dataheaders = 'time (s), tempA (C), tempB (C), avgtemp (C), deltatemp (C), Vchromel (uV), Valumel (uV), indicator\n'
                     myfile.write(dataheaders)
 
-                    rawheaders1 = 'time (s), sampletempA (C), samplesetpointA (C), blocktempA (C), stabilityA (C/min), sampletempB (C), samplesetpointB (C), blocktempB (C), stabilityB (C/min),'
+                    rawheaders1 = 'time (s), sampletempA (C), samplesetpointA (C), stabilityA (C/min), sampletempB (C), samplesetpointB (C), stabilityB (C/min),'
                     rawheaders2 = 'chromelvoltageraw (uV), chromelvoltagecalc (uV), alumelvoltageraw(C), alumelvoltagecalc (uV), tolerance, stability\n'
                     rawfile.write(rawheaders1 + rawheaders2)
 
@@ -1815,8 +1783,6 @@ class StatusPanel(wx.Panel):
         self.alumelV = str(0)
         self.sampletempA=str(30)
         self.sampletempB=str(30)
-        self.blocktempA=str(30)
-        self.blocktempB=str(30)
         self.samplesetpointA=str(30)
         self.samplesetpointB=str(30)
         self.stabilityA = '-'
@@ -1848,8 +1814,6 @@ class StatusPanel(wx.Panel):
         pub.subscribe(self.OnAlumelVoltage, "Alumel Voltage")
         pub.subscribe(self.OnSampleTempA, "Sample Temp A")
         pub.subscribe(self.OnSampleTempB, "Sample Temp B")
-        pub.subscribe(self.OnBlockTempA, "Block Temp A")
-        pub.subscribe(self.OnBlockTempB, "Block Temp B")
         pub.subscribe(self.OnSetpointA, "Setpoint A")
         pub.subscribe(self.OnSetpointB, "Setpoint B")
         pub.subscribe(self.OnStabilityA, "Stability A")
@@ -1864,8 +1828,6 @@ class StatusPanel(wx.Panel):
         pub.subscribe(self.OnAlumelVoltage, "Alumel Voltage Init")
         pub.subscribe(self.OnSampleTempA, "Sample Temp A Init")
         pub.subscribe(self.OnSampleTempB, "Sample Temp B Init")
-        pub.subscribe(self.OnBlockTempA, "Block Temp A Init")
-        pub.subscribe(self.OnBlockTempB, "Block Temp B Init")
         pub.subscribe(self.OnSetpointA, "Setpoint A Init")
         pub.subscribe(self.OnSetpointB, "Setpoint B Init")
 
@@ -1900,18 +1862,6 @@ class StatusPanel(wx.Panel):
         self.sampletempB = '%.1f'%(float(msg))
         self.dT = str(float(self.sampletempA)-float(self.sampletempB))
         self.avgT = str((float(self.sampletempA)+float(self.sampletempB))/2)
-        self.update_values()
-    #end def
-
-    #--------------------------------------------------------------------------
-    def OnBlockTempA(self, msg):
-        self.blocktempA = '%.1f'%(float(msg))
-        self.update_values()
-    #end def
-
-    #--------------------------------------------------------------------------
-    def OnBlockTempB(self, msg):
-        self.blocktempB = '%.1f'%(float(msg))
         self.update_values()
     #end def
 
@@ -2012,10 +1962,6 @@ class StatusPanel(wx.Panel):
         self.label_sampletempA.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_sampletempB = wx.StaticText(self, label="sample temp B ("+self.celsius+"):")
         self.label_sampletempB.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_blocktempA = wx.StaticText(self, label="block temp A ("+self.celsius+"):")
-        self.label_blocktempA.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_blocktempB = wx.StaticText(self, label="block temp B ("+self.celsius+"):")
-        self.label_blocktempB.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_samplesetpointA = wx.StaticText(self, label="sample setpoint A ("+self.celsius+"):")
         self.label_samplesetpointA.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_samplesetpointB = wx.StaticText(self, label="sample setpoint B ("+self.celsius+"):")
@@ -2047,10 +1993,6 @@ class StatusPanel(wx.Panel):
         self.sampletempAcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.sampletempBcurrent = wx.StaticText(self, label=self.sampletempB)
         self.sampletempBcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.blocktempAcurrent = wx.StaticText(self, label=self.blocktempA)
-        self.blocktempAcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.blocktempBcurrent = wx.StaticText(self, label=self.blocktempB)
-        self.blocktempBcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.samplesetpointAcurrent = wx.StaticText(self, label=self.samplesetpointA)
         self.samplesetpointAcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.samplesetpointBcurrent = wx.StaticText(self, label=self.samplesetpointB)
@@ -2079,8 +2021,6 @@ class StatusPanel(wx.Panel):
         self.alumelVcurrent.SetLabel(self.alumelV)
         self.sampletempAcurrent.SetLabel(self.sampletempA)
         self.sampletempBcurrent.SetLabel(self.sampletempB)
-        self.blocktempAcurrent.SetLabel(self.blocktempA)
-        self.blocktempBcurrent.SetLabel(self.blocktempB)
         self.samplesetpointAcurrent.SetLabel(self.samplesetpointA)
         self.samplesetpointBcurrent.SetLabel(self.samplesetpointB)
         self.stabilityAcurrent.SetLabel(self.stabilityA)
@@ -2094,7 +2034,7 @@ class StatusPanel(wx.Panel):
 
     #--------------------------------------------------------------------------
     def create_sizer(self):
-        sizer = wx.GridBagSizer(20,2)
+        sizer = wx.GridBagSizer(18,2)
 
         sizer.Add(self.titlePanel, (0, 0), span = (1,2), border=5, flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.linebreak1,(1,0), span = (1,2))
@@ -2119,40 +2059,36 @@ class StatusPanel(wx.Panel):
         sizer.Add(self.samplesetpointAcurrent, (7,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.label_stabilityA, (8,0))
         sizer.Add(self.stabilityAcurrent, (8, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_blocktempA, (9,0))
-        sizer.Add(self.blocktempAcurrent, (9,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
         #sizer.Add(self.linebreak4,(12,0), span = (1,2))
 
-        sizer.Add(self.label_sampletempB, (10,0))
-        sizer.Add(self.sampletempBcurrent, (10,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_samplesetpointB, (11,0))
-        sizer.Add(self.samplesetpointBcurrent, (11,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_stabilityB, (12,0))
-        sizer.Add(self.stabilityBcurrent, (12, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_blocktempB, (13,0))
-        sizer.Add(self.blocktempBcurrent, (13,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_sampletempB, (9,0))
+        sizer.Add(self.sampletempBcurrent, (9,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_samplesetpointB, (10,0))
+        sizer.Add(self.samplesetpointBcurrent, (10,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_stabilityB, (11,0))
+        sizer.Add(self.stabilityBcurrent, (11, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
         #sizer.Add(self.linebreak5,(17,0), span = (1,2))
 
-        sizer.Add(self.label_avgT, (14,0))
-        sizer.Add(self.avgTcurrent, (14,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_dT, (15,0))
-        sizer.Add(self.dTcurrent, (15,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_avgT, (12,0))
+        sizer.Add(self.avgTcurrent, (12,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_dT, (13,0))
+        sizer.Add(self.dTcurrent, (13,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
         #sizer.Add(self.linebreak6,(20,0), span = (1,2))
 
-        sizer.Add(self.label_seebeckchromel, (16,0))
-        sizer.Add(self.seebeckchromelcurrent, (16,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_seebeckalumel, (17,0))
-        sizer.Add(self.seebeckalumelcurrent, (17,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_seebeckchromel, (14,0))
+        sizer.Add(self.seebeckchromelcurrent, (14,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_seebeckalumel, (15,0))
+        sizer.Add(self.seebeckalumelcurrent, (15,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
         #sizer.Add(self.linebreak7,(23,0), span = (1,2))
 
-        sizer.Add(self.label_mea, (18,0))
-        sizer.Add(self.meacurrent, (18,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_mea, (16,0))
+        sizer.Add(self.meacurrent, (16,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        sizer.Add(self.linebreak2, (19,0), span = (1,2))
+        sizer.Add(self.linebreak2, (17,0), span = (1,2))
 
         self.SetSizer(sizer)
     #end def
@@ -2343,9 +2279,6 @@ class TemperaturePanel(wx.Panel):
         global sampletempA_list
         global tsampletempB_list
         global sampletempB_list
-        global tblocktemp_list
-        global blocktempA_list
-        global blocktempB_list
 
         self.create_title("Temperature Panel")
         self.init_plot()
@@ -2357,9 +2290,6 @@ class TemperaturePanel(wx.Panel):
         pub.subscribe(self.OnSampleTempA, "Sample Temp A")
         pub.subscribe(self.OnTimeSampleTempB, "Time Sample Temp B")
         pub.subscribe(self.OnSampleTempB, "Sample Temp B")
-        pub.subscribe(self.OnTimeBlockTemp, "Time Block Temp")
-        pub.subscribe(self.OnBlockTempA, "Block Temp A")
-        pub.subscribe(self.OnBlockTempB, "Block Temp B")
 
         # For saving the plots at the end of data acquisition:
         pub.subscribe(self.save_plot, "Save_All")
@@ -2423,40 +2353,18 @@ class TemperaturePanel(wx.Panel):
     #end def
 
     #--------------------------------------------------------------------------
-    def OnTimeBlockTemp(self, msg):
-        self.tblocktemp = float(msg)
-        tblocktemp_list.append(self.tblocktemp)
-        blocktempA_list.append(self.blocktempA)
-        blocktempB_list.append(self.blocktempB)
-    #end def
-
-    #--------------------------------------------------------------------------
-    def OnBlockTempA(self, msg):
-        self.blocktempA = float(msg)
-    #end def
-
-    #--------------------------------------------------------------------------
-    def OnBlockTempB(self, msg):
-        self.blocktempB = float(msg)
-    #end def
-
-    #--------------------------------------------------------------------------
     def init_plot(self):
         self.dpi = 100
         self.colorSTA = 'r'
         self.colorSTB = 'b'
-        self.colorBTA = 'm'
-        self.colorBTB = 'c'
 
         self.figure = Figure((6,2), dpi=self.dpi)
         self.subplot = self.figure.add_subplot(111)
 
         self.lineSTA, = self.subplot.plot(tsampletempA_list,sampletempA_list, color=self.colorSTA, linewidth=1)
         self.lineSTB, = self.subplot.plot(tsampletempB_list,sampletempB_list, color=self.colorSTB, linewidth=1)
-        self.lineBTA, = self.subplot.plot(tblocktemp_list,blocktempA_list, color=self.colorBTA, linewidth=1)
-        self.lineBTB, = self.subplot.plot(tblocktemp_list,blocktempB_list, color=self.colorBTB, linewidth=1)
 
-        self.legend = self.figure.legend( (self.lineSTA, self.lineBTA, self.lineSTB, self.lineBTB), (r"$T_A$ (sample)",r"$T_A$ (block)",r"$T_B$ (sample)",r"$T_B$ (block)"), (0.15,0.50),fontsize=8)
+        self.legend = self.figure.legend( (self.lineSTA, self.lineSTB), (r"$T_A$ (sample)",r"$T_B$ (sample)"), (0.15,0.50),fontsize=8)
         #self.subplot.text(0.05, .95, r'$X(f) = \mathcal{F}\{x(t)\}$', \
             #verticalalignment='top', transform = self.subplot.transAxes)
     #end def
@@ -2470,7 +2378,7 @@ class TemperaturePanel(wx.Panel):
 
         # Adjustable scale:
         if self.xmax_control.is_auto():
-            xmax = max(tsampletempA_list+tsampletempB_list+tblocktemp_list)
+            xmax = max(tsampletempA_list+tsampletempB_list)
         else:
             xmax = float(self.xmax_control.manual_value())
         if self.xmin_control.is_auto():
@@ -2478,12 +2386,12 @@ class TemperaturePanel(wx.Panel):
         else:
             xmin = float(self.xmin_control.manual_value())
         if self.ymin_control.is_auto():
-            minT = min(sampletempA_list+sampletempB_list+blocktempA_list+blocktempB_list)
+            minT = min(sampletempA_list+sampletempB_list)
             ymin = minT - abs(minT)*0.3
         else:
             ymin = float(self.ymin_control.manual_value())
         if self.ymax_control.is_auto():
-            maxT = max(sampletempA_list+sampletempB_list+blocktempA_list+blocktempB_list)
+            maxT = max(sampletempA_list+sampletempB_list)
             ymax = maxT + abs(maxT)*0.3
         else:
             ymax = float(self.ymax_control.manual_value())
@@ -2496,10 +2404,8 @@ class TemperaturePanel(wx.Panel):
 
         self.lineSTA, = self.subplot.plot(tsampletempA_list,sampletempA_list, color=self.colorSTA, linewidth=1)
         self.lineSTB, = self.subplot.plot(tsampletempB_list,sampletempB_list, color=self.colorSTB, linewidth=1)
-        self.lineBTA, = self.subplot.plot(tblocktemp_list,blocktempA_list, color=self.colorBTA, linewidth=1)
-        self.lineBTB, = self.subplot.plot(tblocktemp_list,blocktempB_list, color=self.colorBTB, linewidth=1)
 
-        return (self.lineSTA, self.lineSTB, self.lineBTA, self.lineBTB)
+        return (self.lineSTA, self.lineSTB)
 
     #end def
 
@@ -2556,7 +2462,7 @@ class Frame(wx.Frame):
         sizer.Fit(self)
 
         self.SetSizer(sizer)
-        self.SetTitle('High Temp Seebeck GUI')
+        self.SetTitle('Low Temp Seebeck GUI')
         self.Centre()
     #end def
 
@@ -2713,7 +2619,7 @@ class App(wx.App):
     """
     #--------------------------------------------------------------------------
     def OnInit(self):
-        self.frame = Frame(parent=None, title="High Temp Seebeck GUI", size=(1280,1280))
+        self.frame = Frame(parent=None, title="Low Temp Seebeck GUI", size=(1280,1280))
         self.frame.Show()
 
         setup = Setup()

@@ -1,0 +1,1 @@
+pythonw Dropbox/te_measurements/seebeck_measurement/program_lowtemp/LT_SeebeckGUIv1.py

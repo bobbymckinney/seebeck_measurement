@@ -13,7 +13,6 @@ import os
 import sys
 import wx
 from wx.lib.pubsub import pub # For communicating b/w the thread and the GUI
-import wx.lib.scrolledpanel as scrolled
 import matplotlib
 matplotlib.interactive(False)
 matplotlib.use('WXAgg') # The recommended way to use wx with mpl is with WXAgg backend.
@@ -59,7 +58,7 @@ APP_EXIT = 1 # id for File\Quit
 
 stability_threshold = 0.25/60
 oscillation = 8 # Degree range that the PID will oscillate in
-tolerance = (oscillation/5) # This must be set to less than oscillation
+tolerance = (oscillation/8) # This must be set to less than oscillation
 measureList = []
 #dTlist = [0,-2,-4,-6,-8,-6,-4,-2,0,2,4,6,8,6,4,2,0]
 dTlist = [0,-4,-8,-4,0,4,8,4,0]
@@ -234,7 +233,7 @@ class Setup:
         self.sampleBpid.write_register(PID.pIDparam, PID.pIDparam_Auto)
 
         # Set the thermocouple type
-        self.sampleApid.write_register(PID.tCouple, PID.tCouple_K)
+        self.sampleApid.write_bit(PID.tCouple, PID.tCouple_K)
         self.sampleBpid.write_register(PID.tCouple, PID.tCouple_K)
         self.blockApid.write_register(PID.tCouple, PID.tCouple_K)
         self.blockBpid.write_register(PID.tCouple, PID.tCouple_K)
@@ -489,22 +488,8 @@ class TakeData:
                     self.avgtemp = avgtemp
                     self.dT = 0
                     print "Set avg temp to %f" %(self.avgtemp)
-                    print "set sample A temp to %f" %(self.avgtemp)
-                    while True:
-                        try:
-                            self.sampleApid.set_setpoint(self.avgtemp)
-                            break
-                        except IOError:
-                            print 'IOError: communication failure'
-                    #end while
-                    print "set sample B temp to %f" %(self.avgtemp)
-                    while True:
-                        try:
-                            self.sampleBpid.set_setpoint(self.avgtemp)
-                            break
-                        except IOError:
-                            print 'IOError: communication failure'
-                    #end while
+                    self.sampleApid.set_setpoint(self.avgtemp)
+                    self.sampleBpid.set_setpoint(self.avgtemp)
                     self.plotnumber +=1
                     timecalclist = []
                     Vchromelcalclist = []
@@ -540,23 +525,11 @@ class TakeData:
                     for dT in dTlist:
                         self.dT = dT
                         print "Set dT to %f" %(self.dT)
-                        # ramp to correct dT
                         print 'set sample pid A to %f' %(self.avgtemp+self.dT/2.0)
-                        while True:
-                            try:
-                                self.sampleApid.set_setpoint(self.avgtemp+self.dT/2.0)
-                                break
-                            except IOError:
-                                print 'IOError: communication failure'
-                        #end while
                         print 'set sample pid B to %f' %(self.avgtemp-self.dT/2.0)
-                        while True:
-                            try:
-                                self.sampleBpid.set_setpoint(self.avgtemp-self.dT/2.0)
-                                break
-                            except IOError:
-                                print 'IOError: communication failure'
-                        #end while
+                        # ramp to correct dT
+                        self.sampleApid.set_setpoint(self.avgtemp+self.dT/2.0)
+                        self.sampleBpid.set_setpoint(self.avgtemp-self.dT/2.0)
                         print 'reset stability'
                         self.recenttempA = []
                         self.recenttempAtime=[]
@@ -582,9 +555,9 @@ class TakeData:
                         print 'begin seebeck measurement'
                         self.measurement = 'ON'
                         self.updateGUI(stamp='Measurement', data=self.measurement)
-                        for i in range(4):
+                        for i in range(5):
                             self.data_measurement()
-                            if (self.dT == dTlist[-1] and i == 3):
+                            if (self.dT == dTlist[-1] and i == 4):
                                 self.measurement_indicator = 'stop'
                             self.write_data_to_file()
                             if abort_ID == 1: break
@@ -619,22 +592,9 @@ class TakeData:
         else:
             self.updateGUI(stamp='Status Bar', data='Finished, Ready')
         #end else
-        print 'set sample A temp to 25'
-        while True:
-            try:
-                self.sampleApid.set_setpoint(25)
-                break
-            except IOError:
-                print 'IOError: communication failure'
-        #end while
-        print 'set sample B temp to 25'
-        while True:
-            try:
-                self.sampleBpid.set_setpoint(25)
-                break
-            except IOError:
-                print 'IOError: communication failure'
-        #end while
+        print 'set sample temps A and B to 25'
+        self.sampleApid.set_setpoint(25)
+        self.sampleBpid.set_setpoint(25)
         self.save_files()
 
         wx.CallAfter(pub.sendMessage, 'Enable Buttons')
@@ -809,8 +769,8 @@ class TakeData:
     #--------------------------------------------------------------------------
     def check_tolerance(self):
         print 'check tolerance'
-        self.tolA = (np.abs(self.sampletempA-(self.avgtemp+self.dT/2.0)) < self.tolerance)
-        self.tolB = (np.abs(self.sampletempB-(self.avgtemp-self.dT/2.0)) < self.tolerance)
+        self.tolA = (np.abs(self.sampletempA-self.avgtemp) < self.tolerance)
+        self.tolB = (np.abs(self.sampletempB-self.avgtemp) < self.tolerance)
         print 'tolerance A: ',self.tolA
         print 'tolerance B:', self.tolB
 
@@ -1044,9 +1004,9 @@ class TakeData:
         dt = ta-tb
         vchromel = (self.Vchromelcalc + self.Vchromelcalc2)/2
         valumel = (self.Valumelcalc + self.Valumelcalc2)/2
-        myfile.write('%.3f,' %(time))
-        myfile.write('%.4f,%.4f,%.4f,%.4f,' % (ta, tb, avgt, dt) )
-        myfile.write('%.6f,%.6f' % (vchromel,valumel))
+        myfile.write('%f,' %(time))
+        myfile.write('%f,%f,%f,%f,' % (ta, tb, avgt, dt) )
+        myfile.write('%.3f,%.3f' % (vchromel,valumel))
 
         timecalclist.append(time)
         Vchromelcalclist.append(vchromel)
@@ -1126,7 +1086,7 @@ class TakeData:
         rsquared_chromel = ssreg_chromel / sstot_chromel
         rsquared_alumel = ssreg_alumel / sstot_alumel
 
-        processfile.write('%.3f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f\n'%(time,avgT,seebeck_chromel,offset_chromel,rsquared_chromel,seebeck_alumel,offset_alumel,rsquared_alumel))
+        processfile.write('%.1f,%.3f,%.3f,%.3f,%.2f,%.2f,%.5f,%.5f\n'%(time,avgT,seebeck_chromel,offset_chromel,rsquared_chromel,seebeck_alumel,offset_alumel,rsquared_alumel))
 
         fitchromel = {}
         fitalumel = {}
@@ -1135,7 +1095,7 @@ class TakeData:
         fitchromel['r-squared'] = rsquared_chromel
         fitalumel['r-squared'] = rsquared_alumel
         celsius = u"\u2103"
-        self.create_plot(dTalumellist,dTchromellist,Valumelcalclist,Vchromelcalclist,fitalumel,fitchromel,str(self.plotnumber)+'_'+str(avgT)+ 'C')
+        self.create_plot(dTalumellist,dTchromellist,Valumelcalclist,Vchromelcalclist,fitalumel,fitchromel,str(avgT)+celsius)
 
         self.updateGUI(stamp="Chromel Seebeck", data=seebeck_chromel)
         self.updateGUI(stamp="Alumel Seebeck", data=seebeck_alumel)
@@ -1181,7 +1141,7 @@ class TakeData:
 
         fig.savefig('%s.png' % (plot_folder + title) , dpi=dpi)
 
-        #plt.close()
+        plt.close()
     #end def
 
     #--------------------------------------------------------------------------
@@ -1401,9 +1361,9 @@ class UserPanel(wx.Panel):
                     rawfile = open(statusFile,'w')
                     processfile = open(seebeckFile,'w')
                     begin = datetime.now() # Current date and time
-                    myfile.write('Seebeck Data File\nStart Time: ' + str(begin) + '\n')
-                    rawfile.write('System Status\nStart Time: ' + str(begin) + '\n')
-                    processfile.write('Processed Seebeck Coefficent\nStart Time: ' + str(begin) + '\n')
+                    myfile.write('Start Time: ' + str(begin) + '\n')
+                    rawfile.write('Start Time: ' + str(begin) + '\n')
+                    processfile.write('Start Time: ' + str(begin) + '\n')
 
                     dataheaders = 'time (s), tempA (C), tempB (C), avgtemp (C), deltatemp (C), Vchromel (uV), Valumel (uV), indicator\n'
                     myfile.write(dataheaders)
@@ -1828,15 +1788,11 @@ class StatusPanel(wx.Panel):
         self.mea = '-'
 
         self.create_title("Status Panel")
-        self.create_status()
         self.linebreak1 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
+        self.create_status()
         self.linebreak2 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
-        self.linebreak3 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
-        self.linebreak4 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
-        self.linebreak5 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
-        self.linebreak6 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
-        self.linebreak7 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
-        self.linebreak8 = wx.StaticLine(self, pos=(-1,-1), size=(300,1))
+
+        self.linebreak3 = wx.StaticLine(self, pos=(-1,-1), size=(1,300), style=wx.LI_VERTICAL)
 
         # Updates from running program
         pub.subscribe(self.OnTime, "Time Chromel Voltage")
@@ -2004,9 +1960,9 @@ class StatusPanel(wx.Panel):
         self.label_ctime.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_t = wx.StaticText(self, label="run time (s):")
         self.label_t.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_chromelV = wx.StaticText(self, label="voltage (chromel) ("+self.mu+"V):")
+        self.label_chromelV = wx.StaticText(self, label="voltage chromel ("+self.mu+"V):")
         self.label_chromelV.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_alumelV = wx.StaticText(self, label="voltage (alumel) ("+self.mu+"V):")
+        self.label_alumelV = wx.StaticText(self, label="voltage alumel ("+self.mu+"V):")
         self.label_alumelV.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_sampletempA = wx.StaticText(self, label="sample temp A ("+self.celsius+"):")
         self.label_sampletempA.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
@@ -2020,17 +1976,17 @@ class StatusPanel(wx.Panel):
         self.label_samplesetpointA.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_samplesetpointB = wx.StaticText(self, label="sample setpoint B ("+self.celsius+"):")
         self.label_samplesetpointB.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_stabilityA = wx.StaticText(self, label="sample stability A ("+self.celsius+ "/min):")
+        self.label_stabilityA = wx.StaticText(self, label="stability A ("+self.celsius+ "/min):")
         self.label_stabilityA.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_stabilityB = wx.StaticText(self, label="sample stability B ("+self.celsius+ "/min):")
+        self.label_stabilityB = wx.StaticText(self, label="stability B ("+self.celsius+ "/min):")
         self.label_stabilityB.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_avgT = wx.StaticText(self, label="avg T ("+self.celsius+"):")
         self.label_avgT.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_dT = wx.StaticText(self, label=self.delta+"T ("+self.celsius+"):")
         self.label_dT.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_seebeckchromel = wx.StaticText(self, label="seebeck (chromel) ("+self.mu+"V/"+self.celsius+"):")
+        self.label_seebeckchromel = wx.StaticText(self, label="seebeck chromel ("+self.mu+"V/"+self.celsius+"):")
         self.label_seebeckchromel.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
-        self.label_seebeckalumel = wx.StaticText(self, label="seebeck (alumel) ("+self.mu+"V/"+self.celsius+"):")
+        self.label_seebeckalumel = wx.StaticText(self, label="seebeck alumel ("+self.mu+"V/"+self.celsius+"):")
         self.label_seebeckalumel.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.label_mea = wx.StaticText(self, label="seebeck measurement")
         self.label_mea.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
@@ -2069,6 +2025,8 @@ class StatusPanel(wx.Panel):
         self.seebeckalumelcurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
         self.meacurrent = wx.StaticText(self, label=self.mea)
         self.meacurrent.SetFont(wx.Font(16, wx.DEFAULT, wx.NORMAL, wx.NORMAL))
+
+
     #end def
 
     #--------------------------------------------------------------------------
@@ -2104,50 +2062,39 @@ class StatusPanel(wx.Panel):
         sizer.Add(self.label_t, (3,0))
         sizer.Add(self.tcurrent, (3, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        #sizer.Add(self.linebreak2,(4,0), span = (1,2))
-
         sizer.Add(self.label_chromelV, (4, 0))
         sizer.Add(self.chromelVcurrent, (4, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.label_alumelV, (5,0))
         sizer.Add(self.alumelVcurrent, (5,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        #sizer.Add(self.linebreak3,(7,0), span = (1,2))
-
         sizer.Add(self.label_sampletempA, (6,0))
         sizer.Add(self.sampletempAcurrent, (6,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_samplesetpointA, (7,0))
-        sizer.Add(self.samplesetpointAcurrent, (7,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_stabilityA, (8,0))
-        sizer.Add(self.stabilityAcurrent, (8, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_blocktempA, (9,0))
-        sizer.Add(self.blocktempAcurrent, (9,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_stabilityA, (7,0))
+        sizer.Add(self.stabilityAcurrent, (7, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_blocktempA, (8,0))
+        sizer.Add(self.blocktempAcurrent, (8,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_samplesetpointA, (9,0))
+        sizer.Add(self.samplesetpointAcurrent, (9,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        #sizer.Add(self.linebreak4,(12,0), span = (1,2))
 
         sizer.Add(self.label_sampletempB, (10,0))
         sizer.Add(self.sampletempBcurrent, (10,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_samplesetpointB, (11,0))
-        sizer.Add(self.samplesetpointBcurrent, (11,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_stabilityB, (12,0))
-        sizer.Add(self.stabilityBcurrent, (12, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-        sizer.Add(self.label_blocktempB, (13,0))
-        sizer.Add(self.blocktempBcurrent, (13,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-
-        #sizer.Add(self.linebreak5,(17,0), span = (1,2))
+        sizer.Add(self.label_stabilityB, (11,0))
+        sizer.Add(self.stabilityBcurrent, (11, 1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_blocktempB, (12,0))
+        sizer.Add(self.blocktempBcurrent, (12,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
+        sizer.Add(self.label_samplesetpointB, (13,0))
+        sizer.Add(self.samplesetpointBcurrent, (13,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
         sizer.Add(self.label_avgT, (14,0))
         sizer.Add(self.avgTcurrent, (14,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.label_dT, (15,0))
         sizer.Add(self.dTcurrent, (15,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
 
-        #sizer.Add(self.linebreak6,(20,0), span = (1,2))
-
         sizer.Add(self.label_seebeckchromel, (16,0))
         sizer.Add(self.seebeckchromelcurrent, (16,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
         sizer.Add(self.label_seebeckalumel, (17,0))
         sizer.Add(self.seebeckalumelcurrent, (17,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
-
-        #sizer.Add(self.linebreak7,(23,0), span = (1,2))
 
         sizer.Add(self.label_mea, (18,0))
         sizer.Add(self.meacurrent, (18,1),flag=wx.ALIGN_CENTER_HORIZONTAL)
@@ -2534,6 +2481,7 @@ class Frame(wx.Frame):
         self.init_UI()
         self.create_statusbar()
         self.create_menu()
+
         pub.subscribe(self.update_statusbar, "Status Bar")
 
     #end init
@@ -2611,7 +2559,7 @@ class Frame(wx.Frame):
         #self.width1 = measurement_text.GetRect().width + self.space_between
 
         # PID Tolerance:
-        pidTol_text = wx.StaticText(self.statusbar, -1, "Within Tolerance:")
+        pidTol_text = wx.StaticText(self.statusbar, -1, "Within PID Tolerance:")
         self.width2 = pidTol_text.GetRect().width + self.space_between
 
         self.indicator_tol = wx.StaticText(self.statusbar, -1, "-")
