@@ -77,7 +77,7 @@ tc_type = "k-type" # Set the thermocouple type in order to use the correct volta
 
 # Channels corresponding to switch card:
 chromelChannel = '4'
-alumelChannel = '4'
+alumelChannel = '5'
 
 # placer for directory
 filePath = 'global file path'
@@ -105,48 +105,6 @@ avgTcalclist = []
 
 #ResourceManager for visa instrument control
 ResourceManager = visa.ResourceManager()
-
-###############################################################################
-class Keithley_2700:
-    ''' Used for the matrix card operations. '''
-    #--------------------------------------------------------------------------
-    def __init__(self, instr):
-        self.ctrl = ResourceManager.open_resource(instr)
-
-    #end init
-
-    #--------------------------------------------------------------------------
-    def fetch(self, channel):
-        """
-        Scan the channel and take a reading
-        """
-        measure = False
-        while (not measure):
-            try:
-                self.ctrl.write(":ROUTe:SCAN:INTernal (@ %s)" % (channel)) # Specify Channel
-                #keithley.write(":SENSe1:FUNCtion 'TEMPerature'") # Specify Data type
-                self.ctrl.write(":ROUTe:SCAN:LSELect INTernal") # Scan Selected Channel
-                time.sleep(.1)
-                self.ctrl.write(":ROUTe:SCAN:LSELect NONE") # Stop Scan
-                time.sleep(.1)
-                data = self.ctrl.query(":FETCh?")
-                time.sleep(.1)
-                data = float(str(data)[0:15])
-                measure = True
-            except exceptions.ValueError as VE:
-                print(VE)
-                measure = False
-        #end while
-        return data # Fetches Reading
-    #end def
-
-    #--------------------------------------------------------------------------
-    def openAllChannels(self):
-        self.ctrl.write("ROUTe:OPEN:ALL")
-    #end def
-
-#end class
-###############################################################################
 
 ###############################################################################
 class Keithley_2000:
@@ -215,6 +173,7 @@ class PID(omegacn7500.OmegaCN7500):
     tCouple_K = 0 # K type thermocouple
     heatingCoolingControl = 4102 # Register for Heating/Cooling control selection
     heating = 0 # Value for Heating setting
+    heatingcooling = 2 #Value for Heating/Cooling setting
 
 #end class
 ###############################################################################
@@ -257,8 +216,8 @@ class Setup:
         self.pidB.write_register(PID.tCouple, PID.tCouple_K)
 
         # Set the control to heating only
-        self.pidA.write_register(PID.heatingCoolingControl, PID.heating)
-        self.pidB.write_register(PID.heatingCoolingControl, PID.heating)
+        self.pidA.write_register(PID.heatingCoolingControl, PID.heatingcooling)
+        self.pidB.write_register(PID.heatingCoolingControl, PID.heatingcooling)
 
         # Run the controllers
         self.pidA.run()
