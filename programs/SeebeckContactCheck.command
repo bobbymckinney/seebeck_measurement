@@ -1,0 +1,1 @@
+pythonw Dropbox/te_measurements/seebeck_measurement/programs/SeebeckContactCheck.py

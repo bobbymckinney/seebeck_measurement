@@ -1,0 +1,1 @@
+python Dropbox/te_measurements/seebeck_measurement/program_roomtemp/RT_SeebeckGUIv1.py
